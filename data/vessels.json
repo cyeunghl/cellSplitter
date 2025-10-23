@@ -1,0 +1,62 @@
+[
+  {
+    "name": "T12.5 flask",
+    "area_cm2": 12.5,
+    "cells_at_100_confluency": 1660000,
+    "notes": "Standard small T flask."
+  },
+  {
+    "name": "T25 flask",
+    "area_cm2": 25,
+    "cells_at_100_confluency": 3325000,
+    "notes": "Common workhorse flask."
+  },
+  {
+    "name": "T75 flask",
+    "area_cm2": 75,
+    "cells_at_100_confluency": 9975000,
+    "notes": "Useful for scaling cultures."
+  },
+  {
+    "name": "T175 flask",
+    "area_cm2": 175,
+    "cells_at_100_confluency": 23300000,
+    "notes": "Large growth area flask referenced in ThermoFisher table."
+  },
+  {
+    "name": "100 mm dish",
+    "area_cm2": 55,
+    "cells_at_100_confluency": 7315000,
+    "notes": "Standard 10 cm tissue culture dish."
+  },
+  {
+    "name": "60 mm dish",
+    "area_cm2": 21,
+    "cells_at_100_confluency": 2793000,
+    "notes": "Medium dish size; handy for transfections."
+  },
+  {
+    "name": "6-well plate (per well)",
+    "area_cm2": 9.6,
+    "cells_at_100_confluency": 1276800,
+    "notes": "Surface area per well assuming 35 mm diameter wells."
+  },
+  {
+    "name": "12-well plate (per well)",
+    "area_cm2": 3.8,
+    "cells_at_100_confluency": 505400,
+    "notes": "Standard 22 mm diameter wells."
+  },
+  {
+    "name": "24-well plate (per well)",
+    "area_cm2": 1.9,
+    "cells_at_100_confluency": 252700,
+    "notes": "Mid-density screening format."
+  },
+  {
+    "name": "96-well plate (per well)",
+    "area_cm2": 0.32,
+    "cells_at_100_confluency": 42560,
+    "notes": "High-throughput screening per-well area."
+  }
+]
