@@ -249,27 +249,26 @@ async function copyLabelToClipboard(data) {
   const media = mediaField ? mediaField.value.trim() : '';
   const today = form.dataset.today || new Date().toISOString().slice(0, 10);
   const cultureName = form.dataset.cultureName || '';
-  const cellLineName = form.dataset.cellLineName || cultureName;
-
-  const cellsText =
-    data.mode === MODE_DILUTION
-      ? data.cells_needed_formatted || formatCells(data.cells_needed)
-      : data.required_cells_formatted || formatCells(data.required_cells);
+  const cellsText = (() => {
+    if (data.mode === MODE_DILUTION) {
+      return data.cells_needed_formatted || formatCells(data.cells_needed);
+    }
+    return (
+      data.required_cells_total_formatted ||
+      data.required_cells_total ||
+      data.required_cells_formatted ||
+      formatCells(data.required_cells)
+    );
+  })();
 
   const parts = [];
   if (cultureName) {
     parts.push(`Culture: ${cultureName}`);
   }
-  parts.push(`Cell line: ${cellLineName}`);
   parts.push(`Date: ${today}`);
   parts.push(`Media: ${media || '—'}`);
 
-  let cellsSegment = `Cells seeded: ${cellsText} cells`;
-  if (data.mode === MODE_CONFLUENCY && data.vessel) {
-    const vesselCount = data.vessels_used || 1;
-    cellsSegment += ` (${vesselCount} × ${data.vessel})`;
-  }
-  parts.push(cellsSegment);
+  parts.push(`Cells seeded: ${cellsText} cells`);
 
   const labelText = parts.join(' | ');
 

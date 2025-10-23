@@ -622,20 +622,29 @@ def calculate_seeding():
     return jsonify(response)
 
 
-@app.route("/export/active-cultures.csv")
-def export_active_cultures():
-    cultures = (
-        Culture.query.filter(Culture.ended_on.is_(None))
-        .order_by(Culture.name.asc())
-        .all()
-    )
+@app.route("/export/cultures.csv")
+def export_cultures():
+    status = (request.args.get("status") or "active").strip().lower()
+    if status not in {"active", "ended", "both", "all"}:
+        return jsonify({"error": "Invalid export status."}), 400
+
+    query = Culture.query
+    if status == "active":
+        query = query.filter(Culture.ended_on.is_(None))
+    elif status == "ended":
+        query = query.filter(Culture.ended_on.isnot(None))
+
+    cultures = query.order_by(Culture.name.asc()).all()
+
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(
         [
             "Culture name",
             "Cell line",
+            "Status",
             "Start date",
+            "Ended on",
             "Current passage",
             "Current passage date",
             "Media",
@@ -657,7 +666,9 @@ def export_active_cultures():
             [
                 culture.name,
                 culture.cell_line.name,
+                "Active" if culture.ended_on is None else "Ended",
                 culture.start_date.strftime("%Y-%m-%d"),
+                culture.ended_on.strftime("%Y-%m-%d") if culture.ended_on else "",
                 f"P{latest.passage_number}" if latest else "—",
                 latest.date.strftime("%Y-%m-%d") if latest else "—",
                 latest.media if latest and latest.media else "",
@@ -669,12 +680,21 @@ def export_active_cultures():
         )
 
     output.seek(0)
-    filename = f"active_cultures_{date.today().strftime('%Y%m%d')}.csv"
+    if status in {"both", "all"}:
+        status_slug = "all"
+    else:
+        status_slug = status
+    filename = f"{status_slug}_cultures_{date.today().strftime('%Y%m%d')}.csv"
     return Response(
         output.getvalue(),
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+@app.route("/export/active-cultures.csv")
+def export_active_cultures_legacy():
+    return export_cultures()
 
 
 @app.route("/culture/<int:culture_id>/end", methods=["POST"])

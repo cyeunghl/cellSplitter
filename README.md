@@ -69,8 +69,8 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
   culture” button, while the culture detail page offers both end and reactivate options.
 - Need to fix a mistake? Open any passage entry to edit or delete it without affecting the
   rest of the log.
-- Use the “Export active cultures (CSV)” button atop the dashboard to download the current
-  state of all in-progress cultures.
+- Use the export control atop the dashboard to download active cultures, ended cultures,
+  or a combined CSV snapshot in a single click.
 - To keep a copy of the database, back up `cellsplitter.db` or point `SQLALCHEMY_DATABASE_URI`
   to your preferred database engine.
 
