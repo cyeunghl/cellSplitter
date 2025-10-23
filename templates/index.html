@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}cellSplitter · Cultures{% endblock %}
+
+{% block content %}
+  <section class="section">
+    <div class="section-header with-actions">
+      <div>
+        <h1>Cultures</h1>
+        <p>Track active cultures and drill into each passage history.</p>
+      </div>
+      {% if active_cultures %}
+        <div class="header-actions">
+          <a class="button secondary" href="{{ url_for('export_active_cultures') }}">
+            Export active cultures (CSV)
+          </a>
+        </div>
+      {% endif %}
+    </div>
+    {% if active_cultures %}
+      <div class="grid">
+        {% for culture in active_cultures %}
+          <article class="card">
+            <header class="card-header">
+              <h2>{{ culture.name }}</h2>
+              <p>
+                {{ culture.cell_line.name }} ·
+                {{ culture.cell_line.display_doubling_time() }}
+              </p>
+            </header>
+            <div class="card-body">
+              <dl>
+                <div>
+                  <dt>Started</dt>
+                  <dd>{{ culture.start_date.strftime('%Y-%m-%d') }}</dd>
+                </div>
+                <div>
+                  <dt>Current passage</dt>
+                  <dd>
+                    {% if culture.latest_passage %}
+                      P{{ culture.latest_passage.passage_number }}
+                      ({{ culture.latest_passage.date.strftime('%Y-%m-%d') }})
+                    {% else %}
+                      —
+                    {% endif %}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+            <footer class="card-footer actions">
+              <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">
+                View journal
+              </a>
+              <form
+                class="inline-form"
+                method="post"
+                action="{{ url_for('end_culture', culture_id=culture.id) }}"
+              >
+                <input type="hidden" name="ended_on" value="{{ today }}" />
+                <button class="button danger" type="submit">End culture</button>
+              </form>
+            </footer>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty-state">No active cultures yet. Create one below to get started.</p>
+    {% endif %}
+  </section>
+
+  {% if ended_cultures %}
+    <section class="section">
+      <div class="section-header">
+        <h2>Cultures ended</h2>
+        <p>Archived cultures with preserved passage history.</p>
+      </div>
+      <div class="grid">
+        {% for culture in ended_cultures %}
+          <article class="card muted">
+            <header class="card-header">
+              <h3>{{ culture.name }}</h3>
+              <p>
+                {{ culture.cell_line.name }} · Ended
+                {{ culture.ended_on.strftime('%Y-%m-%d') if culture.ended_on else '—' }}
+              </p>
+            </header>
+            <div class="card-body">
+              <dl>
+                <div>
+                  <dt>Started</dt>
+                  <dd>{{ culture.start_date.strftime('%Y-%m-%d') }}</dd>
+                </div>
+                <div>
+                  <dt>Final passage</dt>
+                  <dd>
+                    {% if culture.latest_passage %}
+                      P{{ culture.latest_passage.passage_number }}
+                      ({{ culture.latest_passage.date.strftime('%Y-%m-%d') }})
+                    {% else %}
+                      —
+                    {% endif %}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+            <footer class="card-footer">
+              <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">
+                View journal
+              </a>
+            </footer>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="section">
+    <div class="section-header">
+      <h2>Start a new culture</h2>
+      <p>Create a culture and log its initial passage (P1).</p>
+    </div>
+    <form class="form" method="post" action="{{ url_for('create_culture') }}">
+      <div class="field-grid">
+        <label>
+          <span>Culture name</span>
+          <input type="text" name="name" placeholder="e.g. HEK293FT batch A" required />
+        </label>
+        <label>
+          <span>Cell line</span>
+          <select name="cell_line_id" required>
+            <option value="">Select a cell line…</option>
+            {% for cell_line in cell_lines %}
+              <option value="{{ cell_line.id }}">{{ cell_line.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>Start date</span>
+          <input type="date" name="start_date" value="{{ today }}" />
+        </label>
+        <label>
+          <span>Culture notes (optional)</span>
+          <input type="text" name="culture_notes" placeholder="e.g. thawed from vial 3" />
+        </label>
+      </div>
+      <fieldset class="fieldset">
+        <legend>Initial passage (P1)</legend>
+        <div class="field-grid">
+          <label>
+            <span>Media</span>
+            <input type="text" name="initial_media" placeholder="e.g. DMEM + 10% FBS" />
+          </label>
+          <label>
+            <span>Cell concentration (cells/mL)</span>
+            <input type="text" name="initial_cell_concentration" placeholder="e.g. 1.5e6" />
+          </label>
+          <label>
+            <span>Doubling time (hours)</span>
+            <input type="text" name="initial_doubling_time" placeholder="e.g. 22" />
+          </label>
+          <label class="wide">
+            <span>Notes</span>
+            <textarea name="initial_notes" rows="2" placeholder="Optional observations"></textarea>
+          </label>
+        </div>
+      </fieldset>
+      <button class="button primary" type="submit">Create culture</button>
+    </form>
+  </section>
+
+  <section class="section">
+    <div class="section-header">
+      <h2>Cell line doubling-time library</h2>
+      <p>Add new lines or review existing doubling-time references.</p>
+    </div>
+    <div class="grid">
+      <article class="card">
+        <header class="card-header">
+          <h3>Add a cell line</h3>
+        </header>
+        <form class="card-body form" method="post" action="{{ url_for('create_cell_line') }}">
+          <label>
+            <span>Cell line name</span>
+            <input type="text" name="name" required placeholder="e.g. HCT116" />
+          </label>
+          <div class="field-grid">
+            <label>
+              <span>Doubling time (min, h)</span>
+              <input type="text" name="doubling_time_min_hours" placeholder="e.g. 22" />
+            </label>
+            <label>
+              <span>Doubling time (max, h)</span>
+              <input type="text" name="doubling_time_max_hours" placeholder="e.g. 28" />
+            </label>
+          </div>
+          <label>
+            <span>Reference URL</span>
+            <input type="url" name="reference_url" placeholder="https://" />
+          </label>
+          <label>
+            <span>Notes</span>
+            <textarea name="notes" rows="2" placeholder="Source or assay details"></textarea>
+          </label>
+          <button class="button primary" type="submit">Add cell line</button>
+        </form>
+      </article>
+      <article class="card">
+        <header class="card-header">
+          <h3>Catalogued cell lines</h3>
+        </header>
+        <div class="card-body">
+          {% if cell_lines %}
+            <ul class="cell-line-list">
+              {% for cell_line in cell_lines %}
+                <li>
+                  <div>
+                    <strong>{{ cell_line.name }}</strong>
+                    <span class="meta">{{ cell_line.display_doubling_time() }}</span>
+                  </div>
+                  {% if cell_line.reference_url %}
+                    <a href="{{ cell_line.reference_url }}" target="_blank" rel="noopener">Reference</a>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p>No cell lines recorded yet.</p>
+          {% endif %}
+        </div>
+      </article>
+    </div>
+  </section>
+{% endblock %}
