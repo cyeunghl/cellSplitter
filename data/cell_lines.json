@@ -1,0 +1,72 @@
+[
+  {
+    "name": "HEK293FT",
+    "doubling_time_min_hours": 20,
+    "doubling_time_max_hours": 24,
+    "reference_url": "https://www.thermofisher.com/us/en/home/references/gibco-cell-culture-basics/cell-lines.html",
+    "notes": "Derived from HEK293 cells; fast-growing human embryonic kidney lineage."
+  },
+  {
+    "name": "HEK293",
+    "doubling_time_min_hours": 20,
+    "doubling_time_max_hours": 30,
+    "reference_url": "https://www.atcc.org/products/crl-1573",
+    "notes": "Common human embryonic kidney line; doubling time depends on medium."
+  },
+  {
+    "name": "HeLa",
+    "doubling_time_min_hours": 18,
+    "doubling_time_max_hours": 24,
+    "reference_url": "https://www.atcc.org/products/ccl-2",
+    "notes": "Human cervical cancer line with rapid proliferation."
+  },
+  {
+    "name": "MCF7",
+    "doubling_time_min_hours": 30,
+    "doubling_time_max_hours": 48,
+    "reference_url": "https://www.atcc.org/products/htb-22",
+    "notes": "Breast cancer line that proliferates slower than HEK293."
+  },
+  {
+    "name": "U2OS",
+    "doubling_time_min_hours": 28,
+    "doubling_time_max_hours": 34,
+    "reference_url": "https://www.atcc.org/products/htb-96",
+    "notes": "Human osteosarcoma line; adherent morphology."
+  },
+  {
+    "name": "A549",
+    "doubling_time_min_hours": 22,
+    "doubling_time_max_hours": 28,
+    "reference_url": "https://www.atcc.org/products/ccl-185",
+    "notes": "Human lung carcinoma line used for respiratory research."
+  },
+  {
+    "name": "Jurkat",
+    "doubling_time_min_hours": 24,
+    "doubling_time_max_hours": 30,
+    "reference_url": "https://www.atcc.org/products/tib-152",
+    "notes": "Suspension T cell leukemia line with fast growth."
+  },
+  {
+    "name": "NIH3T3",
+    "doubling_time_min_hours": 18,
+    "doubling_time_max_hours": 22,
+    "reference_url": "https://www.atcc.org/products/crl-1658",
+    "notes": "Mouse fibroblast line with short doubling time."
+  },
+  {
+    "name": "PC12",
+    "doubling_time_min_hours": 48,
+    "doubling_time_max_hours": 72,
+    "reference_url": "https://www.atcc.org/products/crl-1721",
+    "notes": "Rat pheochromocytoma line that grows slowly and can differentiate."
+  },
+  {
+    "name": "CHO-K1",
+    "doubling_time_min_hours": 16,
+    "doubling_time_max_hours": 24,
+    "reference_url": "https://www.atcc.org/products/ccl-61",
+    "notes": "Chinese hamster ovary line widely used for protein production."
+  }
+]
