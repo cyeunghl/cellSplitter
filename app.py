@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 import math
 from datetime import date, datetime
@@ -8,6 +10,7 @@ from typing import Optional
 
 from flask import (
     Flask,
+    Response,
     flash,
     jsonify,
     redirect,
@@ -107,8 +110,6 @@ class Passage(db.Model):
 
     culture = db.relationship("Culture", back_populates="passages")
     vessel = db.relationship("Vessel")
-
-    culture = db.relationship("Culture", back_populates="passages")
 
 
 class Vessel(db.Model):
@@ -234,6 +235,18 @@ def format_hours(value: Optional[float]) -> str:
     return f"{value:g} h"
 
 
+def format_volume(volume_ml: Optional[float]) -> Optional[str]:
+    if volume_ml is None:
+        return None
+    if volume_ml < 0:
+        return f"-{format_volume(abs(volume_ml))}"
+    if volume_ml == 0:
+        return "0.00 mL"
+    if volume_ml < 0.01:
+        return f"{volume_ml * 1000:.2f} µL"
+    return f"{volume_ml:.2f} mL"
+
+
 app.jinja_env.filters["format_cells"] = format_cells
 app.jinja_env.filters["format_hours"] = format_hours
 
@@ -255,11 +268,6 @@ def index():
         "index.html",
         active_cultures=active_cultures,
         ended_cultures=ended_cultures,
-    cultures = Culture.query.order_by(Culture.name.asc()).all()
-    cell_lines = CellLine.query.order_by(CellLine.name.asc()).all()
-    return render_template(
-        "index.html",
-        cultures=cultures,
         cell_lines=cell_lines,
         today=date.today(),
     )
@@ -453,12 +461,68 @@ def doubling_times():
 def calculate_seeding():
     payload = request.get_json(force=True)
 
+    mode = payload.get("mode", "confluency")
+    cell_concentration_raw = payload.get("cell_concentration")
+    culture_id = payload.get("culture_id")
+    cell_concentration = parse_numeric(cell_concentration_raw)
+
+    if cell_concentration is None or cell_concentration <= 0:
+        return jsonify({"error": "Provide a valid starting cell concentration."}), 400
+
+    if mode == "dilution":
+        final_concentration = parse_numeric(payload.get("final_concentration"))
+        total_volume_ml = parse_numeric(payload.get("total_volume_ml"))
+
+        if final_concentration is None or final_concentration <= 0:
+            return jsonify({"error": "Final concentration must be greater than zero."}), 400
+        if total_volume_ml is None or total_volume_ml <= 0:
+            return jsonify({"error": "Total volume must be greater than zero."}), 400
+
+        cells_needed = final_concentration * total_volume_ml
+        slurry_volume_ml = cells_needed / cell_concentration
+
+        if slurry_volume_ml > total_volume_ml:
+            return (
+                jsonify(
+                    {
+                        "error": "Target concentration is higher than the starting suspension. "
+                        "Use a more concentrated source or reduce the final volume.",
+                    }
+                ),
+                400,
+            )
+
+        media_volume_ml = total_volume_ml - slurry_volume_ml
+
+        total_volume_formatted = format_volume(total_volume_ml)
+        note_suggestion = (
+            "Dilution planner: Combine "
+            f"{format_volume(slurry_volume_ml)} of culture at {format_cells(cell_concentration)} cells/mL "
+            f"with {format_volume(media_volume_ml)} of media to yield {total_volume_formatted} "
+            f"at {format_cells(final_concentration)} cells/mL."
+        )
+
+        response = {
+            "mode": "dilution",
+            "final_concentration": final_concentration,
+            "final_concentration_formatted": format_cells(final_concentration),
+            "total_volume_ml": total_volume_ml,
+            "total_volume_formatted": total_volume_formatted,
+            "cells_needed": cells_needed,
+            "cells_needed_formatted": format_cells(cells_needed),
+            "slurry_volume_ml": slurry_volume_ml,
+            "slurry_volume_formatted": format_volume(slurry_volume_ml),
+            "media_volume_ml": media_volume_ml,
+            "media_volume_formatted": format_volume(media_volume_ml),
+            "cell_concentration": cell_concentration,
+            "note_suggestion": note_suggestion,
+        }
+        return jsonify(response)
+
     vessel_id_raw = payload.get("vessel_id")
     target_confluency = payload.get("target_confluency", 0)
     target_hours = payload.get("target_hours", 0)
-    cell_concentration_raw = payload.get("cell_concentration")
     doubling_time_override = parse_numeric(payload.get("doubling_time_override"))
-    culture_id = payload.get("culture_id")
     vessel_count_raw = payload.get("vessels_used", 1)
 
     try:
@@ -493,8 +557,6 @@ def calculate_seeding():
     if vessel_count <= 0:
         vessel_count = 1
 
-    cell_concentration = parse_numeric(cell_concentration_raw)
-
     cell_line = None
     if culture_id:
         try:
@@ -515,7 +577,6 @@ def calculate_seeding():
 
     final_cells_per_vessel = vessel.cells_at_100_confluency * confluency_fraction
     final_cells_total = final_cells_per_vessel * vessel_count
-    final_cells = vessel.cells_at_100_confluency * confluency_fraction
     growth_cycles = hours / doubling_time
     growth_factor = math.pow(2, growth_cycles)
     if growth_factor <= 0:
@@ -523,12 +584,8 @@ def calculate_seeding():
 
     required_cells_per_vessel = final_cells_per_vessel / growth_factor
     required_cells_total = required_cells_per_vessel * vessel_count
-    volume_needed_per_vessel_ml = (
-        required_cells_per_vessel / cell_concentration if cell_concentration else None
-    )
-    volume_needed_total_ml = (
-        volume_needed_per_vessel_ml * vessel_count if volume_needed_per_vessel_ml else None
-    )
+    volume_needed_per_vessel_ml = required_cells_per_vessel / cell_concentration
+    volume_needed_total_ml = volume_needed_per_vessel_ml * vessel_count
 
     note_suggestion = (
         "Seeding planner: Seed "
@@ -538,14 +595,10 @@ def calculate_seeding():
     )
 
     response = {
+        "mode": "confluency",
         "vessel": vessel.name,
         "vessel_id": vessel.id,
         "vessel_area_cm2": vessel.area_cm2,
-    required_cells = final_cells / growth_factor
-    volume_needed_ml = required_cells / cell_concentration if cell_concentration else None
-
-    response = {
-        "vessel": vessel.name,
         "target_confluency": confluency_fraction * 100,
         "hours": hours,
         "doubling_time_used": doubling_time,
@@ -559,24 +612,69 @@ def calculate_seeding():
         "required_cells_total": required_cells_total,
         "required_cells_total_formatted": format_cells(required_cells_total),
         "volume_needed_ml": volume_needed_per_vessel_ml,
-        "volume_needed_formatted": f"{volume_needed_per_vessel_ml:.2f} mL"
-        if volume_needed_per_vessel_ml
-        else None,
+        "volume_needed_formatted": format_volume(volume_needed_per_vessel_ml),
         "volume_needed_total_ml": volume_needed_total_ml,
-        "volume_needed_total_formatted": f"{volume_needed_total_ml:.2f} mL"
-        if volume_needed_total_ml
-        else None,
+        "volume_needed_total_formatted": format_volume(volume_needed_total_ml),
         "cell_concentration": cell_concentration,
         "vessels_used": vessel_count,
         "note_suggestion": note_suggestion,
-        "final_cells": final_cells,
-        "required_cells": required_cells,
-        "required_cells_formatted": format_cells(required_cells),
-        "volume_needed_ml": volume_needed_ml,
-        "volume_needed_formatted": f"{volume_needed_ml:.2f} mL" if volume_needed_ml else None,
-        "cell_concentration": cell_concentration,
     }
     return jsonify(response)
+
+
+@app.route("/export/active-cultures.csv")
+def export_active_cultures():
+    cultures = (
+        Culture.query.filter(Culture.ended_on.is_(None))
+        .order_by(Culture.name.asc())
+        .all()
+    )
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "Culture name",
+            "Cell line",
+            "Start date",
+            "Current passage",
+            "Current passage date",
+            "Media",
+            "Cell concentration (cells/mL)",
+            "Doubling time (hours)",
+            "Vessel usage",
+            "Seeded cells",
+        ]
+    )
+    for culture in cultures:
+        latest = culture.latest_passage
+        vessel_info = ""
+        if latest and latest.vessel:
+            count = latest.vessels_used or 1
+            vessel_info = f"{count} × {latest.vessel.name}"
+            if latest.vessel.area_cm2:
+                vessel_info += f" ({latest.vessel.area_cm2:g} cm²)"
+        writer.writerow(
+            [
+                culture.name,
+                culture.cell_line.name,
+                culture.start_date.strftime("%Y-%m-%d"),
+                f"P{latest.passage_number}" if latest else "—",
+                latest.date.strftime("%Y-%m-%d") if latest else "—",
+                latest.media if latest and latest.media else "",
+                f"{latest.cell_concentration:g}" if latest and latest.cell_concentration else "",
+                f"{latest.doubling_time_hours:g}" if latest and latest.doubling_time_hours else "",
+                vessel_info,
+                f"{latest.seeded_cells:g}" if latest and latest.seeded_cells else "",
+            ]
+        )
+
+    output.seek(0)
+    filename = f"active_cultures_{date.today().strftime('%Y%m%d')}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @app.route("/culture/<int:culture_id>/end", methods=["POST"])
@@ -605,6 +703,73 @@ def reactivate_culture(culture_id: int):
     db.session.commit()
 
     flash(f"Culture '{culture.name}' reactivated.", "success")
+    return redirect(url_for("view_culture", culture_id=culture.id))
+
+
+@app.route("/passage/<int:passage_id>/edit", methods=["GET", "POST"])
+def edit_passage(passage_id: int):
+    passage = Passage.query.get_or_404(passage_id)
+    culture = passage.culture
+    if request.method == "POST":
+        passage.date = parse_date(request.form.get("date"))
+        passage.media = request.form.get("media")
+        passage.cell_concentration = parse_numeric(
+            request.form.get("cell_concentration")
+        )
+        passage.doubling_time_hours = parse_numeric(
+            request.form.get("doubling_time_hours")
+        )
+        passage.notes = request.form.get("notes")
+
+        vessel_id = None
+        vessel_id_raw = request.form.get("vessel_id")
+        if vessel_id_raw:
+            try:
+                vessel_id = int(vessel_id_raw)
+            except (TypeError, ValueError):
+                vessel_id = None
+        passage.vessel = Vessel.query.get(vessel_id) if vessel_id else None
+
+        vessels_used_raw = request.form.get("vessels_used")
+        vessels_used = None
+        if vessels_used_raw:
+            try:
+                candidate = int(vessels_used_raw)
+            except (TypeError, ValueError):
+                candidate = None
+            if candidate and candidate > 0:
+                vessels_used = candidate
+        passage.vessels_used = vessels_used
+
+        passage.seeded_cells = parse_numeric(request.form.get("seeded_cells"))
+
+        db.session.commit()
+        flash(
+            f"Updated passage P{passage.passage_number} for culture '{culture.name}'.",
+            "success",
+        )
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    vessels = Vessel.query.order_by(Vessel.area_cm2.asc()).all()
+    return render_template(
+        "edit_passage.html",
+        passage=passage,
+        culture=culture,
+        vessels=vessels,
+        today=date.today(),
+    )
+
+
+@app.route("/passage/<int:passage_id>/delete", methods=["POST"])
+def delete_passage(passage_id: int):
+    passage = Passage.query.get_or_404(passage_id)
+    culture = passage.culture
+    db.session.delete(passage)
+    db.session.commit()
+    flash(
+        f"Deleted passage P{passage.passage_number} from culture '{culture.name}'.",
+        "success",
+    )
     return redirect(url_for("view_culture", culture_id=culture.id))
 
 

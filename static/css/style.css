@@ -140,6 +140,13 @@ a:hover {
   background: rgba(247, 248, 252, 0.8);
 }
 
+.card-footer.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
 .card-footer.muted {
   color: var(--text-muted);
   font-size: 0.95rem;
@@ -195,6 +202,21 @@ a:hover {
 
 .button.danger:hover {
   background: #b73535;
+}
+
+.button.small {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.button.ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: transparent;
+}
+
+.button.ghost:hover {
+  background: rgba(52, 88, 235, 0.08);
 }
 
 .form {
@@ -254,6 +276,41 @@ textarea {
   justify-content: flex-end;
 }
 
+.inline-form {
+  display: inline;
+}
+
+.mode-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.mode-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.mode-toggle label.is-selected {
+  background: rgba(52, 88, 235, 0.12);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(52, 88, 235, 0.12);
+}
+
+.mode-toggle input[type='radio'] {
+  accent-color: var(--accent);
+}
+
 label.checkbox {
   display: flex;
   align-items: center;
@@ -297,6 +354,37 @@ label.checkbox input[type='checkbox'] {
 
 .table td.wrap {
   white-space: normal;
+}
+
+.table th.actions-column,
+.table td.actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.table td.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.table td.actions .button {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.table td.actions .inline-form {
+  display: inline;
+}
+
+.table td.actions .inline-form button {
+  margin: 0;
+}
+
+.form-hint {
+  font-size: 0.9rem;
+  color: var(--text-muted);
 }
 
 .flash-messages {

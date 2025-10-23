@@ -11,17 +11,21 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 - 🔁 **Auto-numbered passages** – Passage numbers increment automatically (P1, P2, …).
 - 🧪 **Media reuse** – Pull forward the previous passage's media with a single checkbox.
 - 📈 **Seeding planner** – Calculate required cell numbers and seeding volumes based on
-  target confluency, time to split, vessel size, and doubling time, then push the plan
-  directly into the passage log.
+  target confluency, time to split, vessel size, and doubling time, or plan dilutions to
+  reach a specific concentration and total volume, then push the plan directly into the
+  passage log.
 - 📁 **Archive cultures** – Mark cultures as ended to move them into an archived list
   while preserving full passage history.
-- 🧪 **Media shortcuts** – Copy media recipes from the previous passage with a click.
-- 📈 **Seeding planner** – Calculate required cell numbers and seeding volumes based on
-  target confluency, time to split, vessel size, and doubling time.
+- ✏️ **Edit or remove passages** – Correct typos or delete errant entries without touching
+  the surrounding history.
 - 🧬 **Doubling-time library** – Preloaded database of common cell lines with editable
   doubling-time ranges and references.
 - 🧮 **Tissue culture vessel data** – Uses surface areas and cell capacities curated from
   ThermoFisher’s “Cell Culture Useful Numbers” reference to estimate final cell yields.
+- 🏷️ **One-click labels** – Generate printer-friendly label text from the seeding planner
+  and copy it straight to the clipboard.
+- 📤 **CSV export** – Download an overview of all active cultures—including the most
+  recent passage details—for external reporting.
 
 ## Getting started
 
@@ -49,15 +53,24 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 - When creating a culture, the initial passage (P1) is recorded automatically with any
   media, doubling-time, or concentration values you supply.
 - The seeding planner defaults to the average doubling time of the selected cell line but
-  lets you override it for passage-specific behavior.
+  lets you override it for passage-specific behavior. Switch to *Concentration to dilute*
+  mode to compute how much cell slurry and media are needed to reach a desired final
+  concentration and volume.
 - Cell concentration inputs accept plain numbers as well as shorthand such as `300K`,
   `1.5e6`, or `2.3M` cells/mL.
 - Use the “Use previous passage media” checkbox when logging a passage to keep media
   formulations consistent.
 - Apply seeding planner results to the passage form—or save them outright—to capture
   vessel usage, seeded cells, and planning notes without retyping.
+- Copy the generated label text after a seeding or dilution calculation to print or share
+  culture labels with consistent naming.
 - End a culture when you are finished working with it to tuck it into the archived list;
-  you can reactivate it later if needed.
+  you can reactivate it later if needed. Active culture cards include a quick “End
+  culture” button, while the culture detail page offers both end and reactivate options.
+- Need to fix a mistake? Open any passage entry to edit or delete it without affecting the
+  rest of the log.
+- Use the “Export active cultures (CSV)” button atop the dashboard to download the current
+  state of all in-progress cultures.
 - To keep a copy of the database, back up `cellsplitter.db` or point `SQLALCHEMY_DATABASE_URI`
   to your preferred database engine.
 

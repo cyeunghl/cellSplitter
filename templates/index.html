@@ -4,16 +4,22 @@
 
 {% block content %}
   <section class="section">
-    <div class="section-header">
-      <h1>Cultures</h1>
-      <p>Track active cultures and drill into each passage history.</p>
+    <div class="section-header with-actions">
+      <div>
+        <h1>Cultures</h1>
+        <p>Track active cultures and drill into each passage history.</p>
+      </div>
+      {% if active_cultures %}
+        <div class="header-actions">
+          <a class="button secondary" href="{{ url_for('export_active_cultures') }}">
+            Export active cultures (CSV)
+          </a>
+        </div>
+      {% endif %}
     </div>
     {% if active_cultures %}
       <div class="grid">
         {% for culture in active_cultures %}
-    {% if cultures %}
-      <div class="grid">
-        {% for culture in cultures %}
           <article class="card">
             <header class="card-header">
               <h2>{{ culture.name }}</h2>
@@ -41,10 +47,18 @@
                 </div>
               </dl>
             </div>
-            <footer class="card-footer">
+            <footer class="card-footer actions">
               <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">
                 View journal
               </a>
+              <form
+                class="inline-form"
+                method="post"
+                action="{{ url_for('end_culture', culture_id=culture.id) }}"
+              >
+                <input type="hidden" name="ended_on" value="{{ today }}" />
+                <button class="button danger" type="submit">End culture</button>
+              </form>
             </footer>
           </article>
         {% endfor %}
@@ -99,10 +113,6 @@
       </div>
     </section>
   {% endif %}
-
-      <p class="empty-state">No cultures logged yet. Create one below to get started.</p>
-    {% endif %}
-  </section>
 
   <section class="section">
     <div class="section-header">
