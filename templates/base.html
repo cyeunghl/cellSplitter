@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}cellSplitter{% endblock %}</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="container header-inner">
+        <a class="brand" href="{{ url_for('index') }}">cellSplitter</a>
+        <p class="tagline">Tissue culture journal &amp; seeding calculator</p>
+      </div>
+    </header>
+    <main class="container">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <ul class="flash-messages">
+            {% for category, message in messages %}
+              <li class="flash flash-{{ category }}">{{ message }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="app-footer">
+      <div class="container">
+        <small>
+          Built for tracking passages, media history, and seeding plans. Doubling-time
+          defaults come from public vendor catalogs; verify with your own lab notes.
+        </small>
+      </div>
+    </footer>
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>
