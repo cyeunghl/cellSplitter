@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}{{ culture.name }} · cellSplitter{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb">
+    <a href="{{ url_for('index') }}">← Back to cultures</a>
+  </nav>
+
+  <section class="section">
+    <div class="section-header">
+      <h1>{{ culture.name }}</h1>
+      <p>
+        {{ culture.cell_line.name }} · {{ culture.cell_line.display_doubling_time() }} ·
+        Started {{ culture.start_date.strftime('%Y-%m-%d') }}
+      </p>
+    </div>
+    <div class="grid">
+      <article class="card">
+        <header class="card-header">
+          <h2>Passage history</h2>
+          <p>
+            {% if culture.latest_passage %}
+              Current passage: P{{ culture.latest_passage.passage_number }}
+            {% else %}
+              No passages logged yet.
+            {% endif %}
+          </p>
+        </header>
+        <div class="card-body">
+          {% if culture.passages %}
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Passage</th>
+                  <th>Date</th>
+                  <th>Media</th>
+                  <th>Cell concentration</th>
+                  <th>Doubling time</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for passage in culture.passages %}
+                  <tr>
+                    <td>P{{ passage.passage_number }}</td>
+                    <td>{{ passage.date.strftime('%Y-%m-%d') }}</td>
+                    <td class="wrap">{{ passage.media or '—' }}</td>
+                    <td>{{ passage.cell_concentration | format_cells }}</td>
+                    <td>{{ passage.doubling_time_hours | format_hours }}</td>
+                    <td class="wrap">{{ passage.notes or '—' }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="empty-state">No passages recorded yet.</p>
+          {% endif %}
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="grid">
+      <article class="card">
+        <header class="card-header">
+          <h2>Log a new passage</h2>
+          <p>Next passage number: P{{ culture.next_passage_number }}</p>
+        </header>
+        <form
+          class="card-body form"
+          method="post"
+          action="{{ url_for('add_passage', culture_id=culture.id) }}"
+        >
+          <div class="field-grid">
+            <label>
+              <span>Date</span>
+              <input type="date" name="date" value="{{ today }}" />
+            </label>
+            <label class="wide">
+              <span>Media</span>
+              <textarea
+                name="media"
+                rows="2"
+                placeholder="Document media formulation"
+                id="media-field"
+              ></textarea>
+            </label>
+            <label>
+              <span>Cell concentration (cells/mL)</span>
+              <input
+                type="text"
+                name="cell_concentration"
+                placeholder="e.g. 2.5e6"
+                value="{{ last_passage.cell_concentration if last_passage else '' }}"
+              />
+            </label>
+            <label>
+              <span>Doubling time (hours)</span>
+              <input
+                type="text"
+                name="doubling_time_hours"
+                placeholder="e.g. 22"
+                value="{{ last_passage.doubling_time_hours if last_passage else culture.cell_line.average_doubling_time }}"
+              />
+            </label>
+            <label class="wide">
+              <span>Notes</span>
+              <textarea name="notes" rows="2" placeholder="Observations"></textarea>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button
+              class="button secondary"
+              type="button"
+              data-copy-media
+              data-media="{{ last_passage.media if last_passage else '' }}"
+            >
+              Copy previous media
+            </button>
+            <button class="button primary" type="submit">Save passage</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="card">
+        <header class="card-header">
+          <h2>Seeding planner</h2>
+          <p>Plan how many cells to seed toward a target confluency.</p>
+        </header>
+        <form
+          id="seeding-form"
+          class="card-body form"
+          data-culture-id="{{ culture.id }}"
+        >
+          <label>
+            <span>Vessel</span>
+            <select name="vessel_id" required>
+              <option value="">Select a vessel…</option>
+              {% for vessel in vessels %}
+                <option value="{{ vessel.id }}">{{ vessel.name }} ({{ vessel.area_cm2 }} cm²)</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div class="field-grid">
+            <label>
+              <span>Target confluency (%)</span>
+              <input type="number" name="target_confluency" value="80" min="1" max="100" />
+            </label>
+            <label>
+              <span>Days until split</span>
+              <input type="number" name="target_days" value="3" min="0" step="0.5" />
+            </label>
+            <label>
+              <span>Additional hours</span>
+              <input type="number" name="additional_hours" value="0" min="0" step="1" />
+            </label>
+          </div>
+          <label>
+            <span>Cell concentration (cells/mL)</span>
+            <input
+              type="text"
+              name="cell_concentration"
+              value="{{ last_passage.cell_concentration if last_passage else '' }}"
+              placeholder="e.g. 1.5e6"
+              required
+            />
+          </label>
+          <label>
+            <span>Doubling time override (hours)</span>
+            <input
+              type="text"
+              name="doubling_time_override"
+              placeholder="Default: {{ culture.cell_line.display_doubling_time() }}"
+            />
+          </label>
+          <button class="button primary" type="submit">Calculate seeding</button>
+        </form>
+        <div id="seeding-result" class="card-footer muted">
+          <p>Enter parameters above and calculate to see seeding guidance.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+{% endblock %}
