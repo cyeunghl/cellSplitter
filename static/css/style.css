@@ -314,6 +314,14 @@ textarea {
   accent-color: var(--accent);
 }
 
+[data-mode-section='dilution'] .mode-toggle {
+  margin-bottom: 0.75rem;
+}
+
+[data-dilution-section] + [data-dilution-section] {
+  margin-top: 0.75rem;
+}
+
 label.checkbox {
   display: flex;
   align-items: center;

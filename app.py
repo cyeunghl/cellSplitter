@@ -247,6 +247,22 @@ def format_volume(volume_ml: Optional[float]) -> Optional[str]:
     return f"{volume_ml:.2f} mL"
 
 
+def format_significant(value: Optional[float], digits: int = 2) -> Optional[str]:
+    if value is None:
+        return None
+    if value == 0:
+        return "0"
+    absolute = abs(value)
+    if absolute == 0:
+        return "0"
+    order = math.floor(math.log10(absolute))
+    scale = digits - 1 - order
+    rounded = round(value, scale)
+    if scale < 0:
+        return f"{rounded:.0f}"
+    return f"{rounded:.{scale}f}"
+
+
 app.jinja_env.filters["format_cells"] = format_cells
 app.jinja_env.filters["format_hours"] = format_hours
 
@@ -483,13 +499,31 @@ def calculate_seeding():
         return jsonify({"error": "Provide a valid starting cell concentration."}), 400
 
     if mode == "dilution":
-        final_concentration = parse_numeric(payload.get("final_concentration"))
-        total_volume_ml = parse_numeric(payload.get("total_volume_ml"))
+        input_mode = (payload.get("dilution_input_mode") or "concentration").strip().lower()
 
-        if final_concentration is None or final_concentration <= 0:
-            return jsonify({"error": "Final concentration must be greater than zero."}), 400
+        total_volume_ml = parse_numeric(payload.get("total_volume_ml"))
         if total_volume_ml is None or total_volume_ml <= 0:
             return jsonify({"error": "Total volume must be greater than zero."}), 400
+
+        final_concentration = None
+        cells_to_seed = None
+        volume_per_seed_ml = None
+
+        if input_mode == "cells":
+            cells_to_seed = parse_numeric(payload.get("cells_to_seed"))
+            volume_per_seed_ml = parse_numeric(payload.get("volume_per_seed_ml"))
+
+            if cells_to_seed is None or cells_to_seed <= 0:
+                return jsonify({"error": "Number of cells to seed must be greater than zero."}), 400
+            if volume_per_seed_ml is None or volume_per_seed_ml <= 0:
+                return jsonify({"error": "Volume for seeding must be greater than zero."}), 400
+
+            final_concentration = cells_to_seed / volume_per_seed_ml
+        else:
+            final_concentration = parse_numeric(payload.get("final_concentration"))
+            if final_concentration is None or final_concentration <= 0:
+                return jsonify({"error": "Final concentration must be greater than zero."}), 400
+            input_mode = "concentration"
 
         cells_needed = final_concentration * total_volume_ml
         slurry_volume_ml = cells_needed / cell_concentration
@@ -515,8 +549,20 @@ def calculate_seeding():
             f"at {format_cells(final_concentration)} cells/mL."
         )
 
+        if cells_to_seed is not None and volume_per_seed_ml is not None:
+            note_suggestion += (
+                " This delivers "
+                f"{format_cells(cells_to_seed)} cells in {format_volume(volume_per_seed_ml)} "
+                "per portion."
+            )
+
+        portions_prepared = None
+        if volume_per_seed_ml and volume_per_seed_ml > 0:
+            portions_prepared = total_volume_ml / volume_per_seed_ml
+
         response = {
             "mode": "dilution",
+            "dilution_input_mode": input_mode,
             "final_concentration": final_concentration,
             "final_concentration_formatted": format_cells(final_concentration),
             "total_volume_ml": total_volume_ml,
@@ -530,6 +576,16 @@ def calculate_seeding():
             "cell_concentration": cell_concentration,
             "note_suggestion": note_suggestion,
         }
+
+        if cells_to_seed is not None:
+            response["cells_to_seed"] = cells_to_seed
+            response["cells_to_seed_formatted"] = format_cells(cells_to_seed)
+        if volume_per_seed_ml is not None:
+            response["volume_per_seed_ml"] = volume_per_seed_ml
+            response["volume_per_seed_formatted"] = format_volume(volume_per_seed_ml)
+        if portions_prepared is not None:
+            response["portions_prepared"] = portions_prepared
+
         return jsonify(response)
 
     vessel_id_raw = payload.get("vessel_id")
@@ -672,9 +728,16 @@ def export_cultures():
         vessel_info = ""
         if latest and latest.vessel:
             count = latest.vessels_used or 1
-            vessel_info = f"{count} × {latest.vessel.name}"
+            vessel_info = f"{count} x {latest.vessel.name}"
             if latest.vessel.area_cm2:
-                vessel_info += f" ({latest.vessel.area_cm2:g} cm²)"
+                vessel_info += f" ({latest.vessel.area_cm2:g} cm^2)"
+
+        seeded_cells_value = ""
+        if latest and latest.seeded_cells is not None:
+            formatted_seeded = format_significant(latest.seeded_cells, 2)
+            if formatted_seeded is not None:
+                seeded_cells_value = formatted_seeded
+
         writer.writerow(
             [
                 culture.name,
@@ -688,7 +751,7 @@ def export_cultures():
                 f"{latest.cell_concentration:g}" if latest and latest.cell_concentration else "",
                 f"{latest.doubling_time_hours:g}" if latest and latest.doubling_time_hours else "",
                 vessel_info,
-                f"{latest.seeded_cells:g}" if latest and latest.seeded_cells else "",
+                seeded_cells_value,
             ]
         )
 

@@ -206,6 +206,7 @@
           data-culture-id="{{ culture.id }}"
           data-culture-name="{{ culture.name }}"
           data-cell-line-name="{{ culture.cell_line.name }}"
+          data-next-passage="{{ culture.next_passage_number }}"
           data-today="{{ today.isoformat() }}"
         >
           <div class="mode-toggle" role="radiogroup" aria-label="Calculation mode">
@@ -256,25 +257,68 @@
             </label>
           </div>
           <div data-mode-section="dilution" hidden>
-            <div class="field-grid">
+            <div class="mode-toggle" role="radiogroup" aria-label="Dilution input mode">
               <label>
-                <span>Final concentration (cells/mL)</span>
-                <input
-                  type="text"
-                  name="final_concentration"
-                  placeholder="e.g. 5e5"
-                  data-required-when="dilution"
-                />
+                <input type="radio" name="dilution_input_mode" value="concentration" checked />
+                <span>By final concentration</span>
               </label>
               <label>
-                <span>Total volume (mL)</span>
-                <input
-                  type="text"
-                  name="total_volume_ml"
-                  placeholder="e.g. 12"
-                  data-required-when="dilution"
-                />
+                <input type="radio" name="dilution_input_mode" value="cells" />
+                <span>By cells and volume</span>
               </label>
+            </div>
+            <div data-dilution-section="concentration">
+              <div class="field-grid">
+                <label>
+                  <span>Final concentration (cells/mL)</span>
+                  <input
+                    type="text"
+                    name="final_concentration"
+                    placeholder="e.g. 5e5"
+                    data-required-when-dilution="concentration"
+                  />
+                </label>
+                <label>
+                  <span>Total volume (mL)</span>
+                  <input
+                    type="text"
+                    name="total_volume_ml"
+                    placeholder="e.g. 12"
+                    data-required-when-dilution="concentration"
+                  />
+                </label>
+              </div>
+            </div>
+            <div data-dilution-section="cells" hidden>
+              <div class="field-grid">
+                <label>
+                  <span>Number of cells to seed</span>
+                  <input
+                    type="text"
+                    name="cells_to_seed"
+                    placeholder="e.g. 1.5e6"
+                    data-required-when-dilution="cells"
+                  />
+                </label>
+                <label>
+                  <span>Volume for those cells (mL)</span>
+                  <input
+                    type="text"
+                    name="volume_per_seed_ml"
+                    placeholder="e.g. 2"
+                    data-required-when-dilution="cells"
+                  />
+                </label>
+                <label>
+                  <span>Total volume (mL)</span>
+                  <input
+                    type="text"
+                    name="total_volume_ml"
+                    placeholder="e.g. 12"
+                    data-required-when-dilution="cells"
+                  />
+                </label>
+              </div>
             </div>
             <p class="form-hint">
               Volumes are entered in mL. Results automatically switch to µL when below 0.01 mL.

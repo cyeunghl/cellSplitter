@@ -68,14 +68,31 @@ function formatCellsForLabel(value) {
 function buildSeedingSummary(data) {
   const segments = [];
   if (data.mode === MODE_DILUTION) {
+    const isCellsMode = data.dilution_input_mode === 'cells';
+    const volumeSummary = data.total_volume_formatted
+      ? ` in ${data.total_volume_formatted} total volume`
+      : '';
+    const perPortionSummary =
+      isCellsMode && data.cells_to_seed_formatted && data.volume_per_seed_formatted
+        ? ` (${data.cells_to_seed_formatted} in ${data.volume_per_seed_formatted})`
+        : '';
     segments.push(
-      `<p><strong>Dilute to ${data.final_concentration_formatted} cells/mL</strong> in ${data.total_volume_formatted} total volume.</p>`
+      `<p><strong>Dilute to ${data.final_concentration_formatted} cells/mL</strong>${perPortionSummary}${volumeSummary}.</p>`
     );
     segments.push(
       `<p>Use <strong>${data.slurry_volume_formatted}</strong> of culture at ${formatCells(
         data.cell_concentration
       )} cells/mL with <strong>${data.media_volume_formatted}</strong> of media.</p>`
     );
+    if (isCellsMode && data.volume_per_seed_formatted && data.cells_to_seed_formatted) {
+      const portionCount =
+        Number.isFinite(data.portions_prepared) && data.portions_prepared > 0
+          ? ` (~${formatWithSignificantDigits(data.portions_prepared, 2)} portion(s))`
+          : '';
+      segments.push(
+        `<p class="meta">Per portion: ${data.cells_to_seed_formatted} cells in ${data.volume_per_seed_formatted}${portionCount}.</p>`
+      );
+    }
     segments.push(
       `<p class="meta">Cells delivered: ${data.cells_needed_formatted} total.</p>`
     );
@@ -158,6 +175,20 @@ function fillPassageFormFromSeeding(data, { submit = false } = {}) {
       seededCellsInput.value = data.cells_needed ?? '';
     } else {
       seededCellsInput.value = data.required_cells_total ?? '';
+    }
+  }
+
+  const cellConcentrationField = passageForm.querySelector('#cell-concentration-field');
+  if (cellConcentrationField) {
+    let concentrationValue = data.cell_concentration;
+    if (data.mode === MODE_DILUTION && data.final_concentration !== undefined) {
+      concentrationValue = data.final_concentration;
+    }
+    if (
+      (typeof concentrationValue === 'number' && Number.isFinite(concentrationValue)) ||
+      (typeof concentrationValue === 'string' && concentrationValue.trim() !== '')
+    ) {
+      cellConcentrationField.value = concentrationValue;
     }
   }
 
@@ -263,7 +294,15 @@ function attachSeedingFormHandler() {
       payload.doubling_time_override = formData.get('doubling_time_override');
       payload.vessels_used = Number(formData.get('vessels_used') || 1);
     } else {
-      payload.final_concentration = formData.get('final_concentration');
+      const dilutionMode =
+        form.querySelector('input[name="dilution_input_mode"]:checked')?.value || 'concentration';
+      payload.dilution_input_mode = dilutionMode;
+      if (dilutionMode === 'cells') {
+        payload.cells_to_seed = formData.get('cells_to_seed');
+        payload.volume_per_seed_ml = formData.get('volume_per_seed_ml');
+      } else {
+        payload.final_concentration = formData.get('final_concentration');
+      }
       payload.total_volume_ml = formData.get('total_volume_ml');
     }
 
@@ -294,6 +333,7 @@ async function copyLabelToClipboard(data) {
 
   const today = form.dataset.today || new Date().toISOString().slice(0, 10);
   const cultureName = form.dataset.cultureName || '';
+  const nextPassageRaw = form.dataset.nextPassage || '';
   let cellsText = '—';
   if (data.mode === MODE_DILUTION) {
     cellsText = formatCellsForLabel(data.cells_needed);
@@ -329,9 +369,16 @@ async function copyLabelToClipboard(data) {
   }
   parts.push(`Date: ${today}`);
 
+  if (nextPassageRaw) {
+    const normalized = String(nextPassageRaw).startsWith('P')
+      ? String(nextPassageRaw)
+      : `P${nextPassageRaw}`;
+    parts.push(`Passage: ${normalized}`);
+  }
+
   parts.push(`Cells seeded: ${cellsText}`);
 
-  const labelText = parts.join(' | ');
+  const labelText = parts.join('\n');
 
   const fallbackCopy = () => {
     const textarea = document.createElement('textarea');
@@ -341,16 +388,14 @@ async function copyLabelToClipboard(data) {
     textarea.style.left = '-9999px';
     document.body.appendChild(textarea);
     textarea.select();
+    let copied = false;
     try {
-      const successful = document.execCommand('copy');
-      document.body.removeChild(textarea);
-      if (successful) {
-        window.alert('Label text copied to clipboard.');
-      } else {
-        window.prompt('Copy the label text below:', labelText);
-      }
+      copied = document.execCommand('copy');
     } catch (error) {
-      document.body.removeChild(textarea);
+      copied = false;
+    }
+    document.body.removeChild(textarea);
+    if (!copied) {
       window.prompt('Copy the label text below:', labelText);
     }
   };
@@ -358,7 +403,6 @@ async function copyLabelToClipboard(data) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     try {
       await navigator.clipboard.writeText(labelText);
-      window.alert('Label text copied to clipboard.');
     } catch (error) {
       fallbackCopy();
     }
@@ -403,8 +447,47 @@ function attachModeSwitcher() {
   update();
 }
 
+function attachDilutionModeSwitcher() {
+  const form = document.querySelector('#seeding-form');
+  if (!form) {
+    return;
+  }
+
+  const radios = form.querySelectorAll('input[name="dilution_input_mode"]');
+  if (!radios.length) {
+    return;
+  }
+
+  const update = () => {
+    const selected = form.querySelector('input[name="dilution_input_mode"]:checked');
+    const mode = selected ? selected.value : 'concentration';
+    form.dataset.dilutionInputMode = mode;
+
+    const sections = form.querySelectorAll('[data-dilution-section]');
+    sections.forEach((section) => {
+      const isActive = section.dataset.dilutionSection === mode;
+      section.hidden = !isActive;
+      const inputs = section.querySelectorAll('input, select, textarea');
+      inputs.forEach((input) => {
+        input.disabled = !isActive;
+        const requiredWhen = input.dataset.requiredWhenDilution;
+        if (requiredWhen) {
+          input.required = isActive && requiredWhen === mode;
+        }
+      });
+    });
+  };
+
+  radios.forEach((radio) => {
+    radio.addEventListener('change', update);
+  });
+
+  update();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   attachMediaCheckboxHandler();
   attachModeSwitcher();
+  attachDilutionModeSwitcher();
   attachSeedingFormHandler();
 });
