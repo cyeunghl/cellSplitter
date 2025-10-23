@@ -8,6 +8,29 @@
   </nav>
 
   <section class="section">
+    <div class="section-header with-actions">
+      <div>
+        <h1>{{ culture.name }}</h1>
+        <p>
+          {{ culture.cell_line.name }} · {{ culture.cell_line.display_doubling_time() }} ·
+          Started {{ culture.start_date.strftime('%Y-%m-%d') }}
+        </p>
+        {% if culture.ended_on %}
+          <p class="status ended">Ended on {{ culture.ended_on.strftime('%Y-%m-%d') }}</p>
+        {% endif %}
+      </div>
+      <div class="header-actions">
+        {% if culture.ended_on %}
+          <form method="post" action="{{ url_for('reactivate_culture', culture_id=culture.id) }}">
+            <button class="button secondary" type="submit">Reactivate culture</button>
+          </form>
+        {% else %}
+          <form method="post" action="{{ url_for('end_culture', culture_id=culture.id) }}">
+            <input type="hidden" name="ended_on" value="{{ today }}" />
+            <button class="button danger" type="submit">End culture</button>
+          </form>
+        {% endif %}
+      </div>
     <div class="section-header">
       <h1>{{ culture.name }}</h1>
       <p>
@@ -37,6 +60,8 @@
                   <th>Media</th>
                   <th>Cell concentration</th>
                   <th>Doubling time</th>
+                  <th>Vessel usage</th>
+                  <th>Seeded cells</th>
                   <th>Notes</th>
                 </tr>
               </thead>
@@ -48,6 +73,18 @@
                     <td class="wrap">{{ passage.media or '—' }}</td>
                     <td>{{ passage.cell_concentration | format_cells }}</td>
                     <td>{{ passage.doubling_time_hours | format_hours }}</td>
+                    <td class="wrap">
+                      {% if passage.vessel %}
+                        {% set vessel_count = passage.vessels_used or 1 %}
+                        {{ vessel_count }} × {{ passage.vessel.name }}
+                        {% if passage.vessel.area_cm2 %}
+                          ({{ '%g' % passage.vessel.area_cm2 }} cm²)
+                        {% endif %}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td>{{ passage.seeded_cells | format_cells }}</td>
                     <td class="wrap">{{ passage.notes or '—' }}</td>
                   </tr>
                 {% endfor %}
@@ -68,6 +105,83 @@
           <h2>Log a new passage</h2>
           <p>Next passage number: P{{ culture.next_passage_number }}</p>
         </header>
+        {% if culture.is_active %}
+          <form
+            id="passage-form"
+            class="card-body form"
+            method="post"
+            action="{{ url_for('add_passage', culture_id=culture.id) }}"
+            data-passage-form
+            data-culture-ended="false"
+          >
+            <input type="hidden" name="vessel_id" id="passage-vessel-id" />
+            <input type="hidden" name="vessels_used" id="passage-vessels-used" />
+            <input type="hidden" name="seeded_cells" id="passage-seeded-cells" />
+            <div class="field-grid">
+              <label>
+                <span>Date</span>
+                <input type="date" name="date" value="{{ today }}" />
+              </label>
+              <label class="wide">
+                <span>Media</span>
+                <textarea
+                  name="media"
+                  rows="2"
+                  placeholder="Document media formulation"
+                  id="media-field"
+                ></textarea>
+              </label>
+              <label class="checkbox" {% if not last_passage or not last_passage.media %}data-disabled="true"{% endif %}>
+                <input
+                  type="checkbox"
+                  name="use_previous_media"
+                  id="use-previous-media"
+                  value="1"
+                  {% if not last_passage or not last_passage.media %}disabled{% endif %}
+                  data-media="{{ last_passage.media if last_passage else '' }}"
+                />
+                <span>Use previous passage media</span>
+              </label>
+              <label>
+                <span>Cell concentration (cells/mL)</span>
+                <input
+                  type="text"
+                  name="cell_concentration"
+                  id="cell-concentration-field"
+                  placeholder="e.g. 2.5e6"
+                  value="{{ last_passage.cell_concentration if last_passage else '' }}"
+                />
+              </label>
+              <label>
+                <span>Doubling time (hours)</span>
+                <input
+                  type="text"
+                  name="doubling_time_hours"
+                  placeholder="e.g. 22"
+                  value="{{ last_passage.doubling_time_hours if last_passage else culture.cell_line.average_doubling_time }}"
+                />
+              </label>
+              <label class="wide">
+                <span>Notes</span>
+                <textarea
+                  name="notes"
+                  id="notes-field"
+                  rows="2"
+                  placeholder="Observations"
+                ></textarea>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="button primary" type="submit">Save passage</button>
+            </div>
+          </form>
+        {% else %}
+          <div class="card-body">
+            <p class="empty-state">
+              This culture has been ended. Reactivate it to log additional passages.
+            </p>
+          </div>
+        {% endif %}
         <form
           class="card-body form"
           method="post"
@@ -155,6 +269,10 @@
             <label>
               <span>Additional hours</span>
               <input type="number" name="additional_hours" value="0" min="0" step="1" />
+            </label>
+            <label>
+              <span>Number of vessels</span>
+              <input type="number" name="vessels_used" value="1" min="1" step="1" />
             </label>
           </div>
           <label>

@@ -9,6 +9,12 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 - 📓 **Culture journal** – Record each passage with media, cell concentrations, doubling
   times, and notes.
 - 🔁 **Auto-numbered passages** – Passage numbers increment automatically (P1, P2, …).
+- 🧪 **Media reuse** – Pull forward the previous passage's media with a single checkbox.
+- 📈 **Seeding planner** – Calculate required cell numbers and seeding volumes based on
+  target confluency, time to split, vessel size, and doubling time, then push the plan
+  directly into the passage log.
+- 📁 **Archive cultures** – Mark cultures as ended to move them into an archived list
+  while preserving full passage history.
 - 🧪 **Media shortcuts** – Copy media recipes from the previous passage with a click.
 - 📈 **Seeding planner** – Calculate required cell numbers and seeding volumes based on
   target confluency, time to split, vessel size, and doubling time.
@@ -46,6 +52,12 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
   lets you override it for passage-specific behavior.
 - Cell concentration inputs accept plain numbers as well as shorthand such as `300K`,
   `1.5e6`, or `2.3M` cells/mL.
+- Use the “Use previous passage media” checkbox when logging a passage to keep media
+  formulations consistent.
+- Apply seeding planner results to the passage form—or save them outright—to capture
+  vessel usage, seeded cells, and planning notes without retyping.
+- End a culture when you are finished working with it to tuck it into the archived list;
+  you can reactivate it later if needed.
 - To keep a copy of the database, back up `cellsplitter.db` or point `SQLALCHEMY_DATABASE_URI`
   to your preferred database engine.
 

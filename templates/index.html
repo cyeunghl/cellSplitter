@@ -8,6 +8,9 @@
       <h1>Cultures</h1>
       <p>Track active cultures and drill into each passage history.</p>
     </div>
+    {% if active_cultures %}
+      <div class="grid">
+        {% for culture in active_cultures %}
     {% if cultures %}
       <div class="grid">
         {% for culture in cultures %}
@@ -47,6 +50,56 @@
         {% endfor %}
       </div>
     {% else %}
+      <p class="empty-state">No active cultures yet. Create one below to get started.</p>
+    {% endif %}
+  </section>
+
+  {% if ended_cultures %}
+    <section class="section">
+      <div class="section-header">
+        <h2>Cultures ended</h2>
+        <p>Archived cultures with preserved passage history.</p>
+      </div>
+      <div class="grid">
+        {% for culture in ended_cultures %}
+          <article class="card muted">
+            <header class="card-header">
+              <h3>{{ culture.name }}</h3>
+              <p>
+                {{ culture.cell_line.name }} · Ended
+                {{ culture.ended_on.strftime('%Y-%m-%d') if culture.ended_on else '—' }}
+              </p>
+            </header>
+            <div class="card-body">
+              <dl>
+                <div>
+                  <dt>Started</dt>
+                  <dd>{{ culture.start_date.strftime('%Y-%m-%d') }}</dd>
+                </div>
+                <div>
+                  <dt>Final passage</dt>
+                  <dd>
+                    {% if culture.latest_passage %}
+                      P{{ culture.latest_passage.passage_number }}
+                      ({{ culture.latest_passage.date.strftime('%Y-%m-%d') }})
+                    {% else %}
+                      —
+                    {% endif %}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+            <footer class="card-footer">
+              <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">
+                View journal
+              </a>
+            </footer>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
       <p class="empty-state">No cultures logged yet. Create one below to get started.</p>
     {% endif %}
   </section>

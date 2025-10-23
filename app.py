@@ -16,6 +16,7 @@ from flask import (
     url_for,
 )
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import inspect, text
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///cellsplitter.db"
@@ -63,6 +64,7 @@ class Culture(db.Model):
     cell_line_id = db.Column(db.Integer, db.ForeignKey("cell_line.id"), nullable=False)
     start_date = db.Column(db.Date, nullable=False, default=date.today)
     notes = db.Column(db.Text, nullable=True)
+    ended_on = db.Column(db.Date, nullable=True)
 
     cell_line = db.relationship("CellLine", back_populates="cultures")
     passages = db.relationship(
@@ -85,6 +87,10 @@ class Culture(db.Model):
             return 1
         return latest.passage_number + 1
 
+    @property
+    def is_active(self) -> bool:
+        return self.ended_on is None
+
 
 class Passage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -95,6 +101,12 @@ class Passage(db.Model):
     cell_concentration = db.Column(db.Float, nullable=True)
     doubling_time_hours = db.Column(db.Float, nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    vessel_id = db.Column(db.Integer, db.ForeignKey("vessel.id"), nullable=True)
+    vessels_used = db.Column(db.Integer, nullable=True)
+    seeded_cells = db.Column(db.Float, nullable=True)
+
+    culture = db.relationship("Culture", back_populates="passages")
+    vessel = db.relationship("Vessel")
 
     culture = db.relationship("Culture", back_populates="passages")
 
@@ -150,6 +162,24 @@ def setup_database() -> None:
     db.create_all()
     bootstrap_cell_lines()
     bootstrap_vessels()
+    ensure_columns()
+
+
+def ensure_columns() -> None:
+    inspector = inspect(db.engine)
+
+    def has_column(table: str, column: str) -> bool:
+        return column in {col["name"] for col in inspector.get_columns(table)}
+
+    with db.engine.begin() as connection:
+        if not has_column("culture", "ended_on"):
+            connection.execute(text("ALTER TABLE culture ADD COLUMN ended_on DATE"))
+        if not has_column("passage", "vessel_id"):
+            connection.execute(text("ALTER TABLE passage ADD COLUMN vessel_id INTEGER"))
+        if not has_column("passage", "vessels_used"):
+            connection.execute(text("ALTER TABLE passage ADD COLUMN vessels_used INTEGER"))
+        if not has_column("passage", "seeded_cells"):
+            connection.execute(text("ALTER TABLE passage ADD COLUMN seeded_cells FLOAT"))
 
 
 def parse_date(value: str | None) -> date:
@@ -210,6 +240,21 @@ app.jinja_env.filters["format_hours"] = format_hours
 
 @app.route("/")
 def index():
+    active_cultures = (
+        Culture.query.filter(Culture.ended_on.is_(None))
+        .order_by(Culture.name.asc())
+        .all()
+    )
+    ended_cultures = (
+        Culture.query.filter(Culture.ended_on.isnot(None))
+        .order_by(Culture.name.asc())
+        .all()
+    )
+    cell_lines = CellLine.query.order_by(CellLine.name.asc()).all()
+    return render_template(
+        "index.html",
+        active_cultures=active_cultures,
+        ended_cultures=ended_cultures,
     cultures = Culture.query.order_by(Culture.name.asc()).all()
     cell_lines = CellLine.query.order_by(CellLine.name.asc()).all()
     return render_template(
@@ -294,11 +339,45 @@ def view_culture(culture_id: int):
 def add_passage(culture_id: int):
     culture = Culture.query.get_or_404(culture_id)
 
+    if culture.ended_on is not None:
+        flash(
+            "This culture has been ended. Reactivate it before logging new passages.",
+            "error",
+        )
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
     passage_date = parse_date(request.form.get("date"))
     media = request.form.get("media")
     cell_concentration = parse_numeric(request.form.get("cell_concentration"))
     doubling_time = parse_numeric(request.form.get("doubling_time_hours"))
     notes = request.form.get("notes")
+    last_passage = culture.latest_passage
+
+    if request.form.get("use_previous_media") and last_passage:
+        media = last_passage.media
+
+    vessel_id = None
+    vessel = None
+    vessel_id_raw = request.form.get("vessel_id")
+    if vessel_id_raw:
+        try:
+            vessel_id = int(vessel_id_raw)
+        except (TypeError, ValueError):
+            vessel_id = None
+    if vessel_id:
+        vessel = Vessel.query.get(vessel_id)
+
+    vessels_used_raw = request.form.get("vessels_used")
+    vessels_used = None
+    if vessels_used_raw:
+        try:
+            vessels_used_candidate = int(vessels_used_raw)
+        except (TypeError, ValueError):
+            vessels_used_candidate = None
+        if vessels_used_candidate and vessels_used_candidate > 0:
+            vessels_used = vessels_used_candidate
+
+    seeded_cells = parse_numeric(request.form.get("seeded_cells"))
 
     passage = Passage(
         culture=culture,
@@ -308,6 +387,9 @@ def add_passage(culture_id: int):
         cell_concentration=cell_concentration,
         doubling_time_hours=doubling_time,
         notes=notes,
+        vessel=vessel,
+        vessels_used=vessels_used,
+        seeded_cells=seeded_cells,
     )
     db.session.add(passage)
     db.session.commit()
@@ -377,6 +459,7 @@ def calculate_seeding():
     cell_concentration_raw = payload.get("cell_concentration")
     doubling_time_override = parse_numeric(payload.get("doubling_time_override"))
     culture_id = payload.get("culture_id")
+    vessel_count_raw = payload.get("vessels_used", 1)
 
     try:
         vessel_id = int(vessel_id_raw)
@@ -403,6 +486,13 @@ def calculate_seeding():
     if hours <= 0:
         return jsonify({"error": "Time horizon must be greater than zero."}), 400
 
+    try:
+        vessel_count = int(vessel_count_raw)
+    except (TypeError, ValueError):
+        vessel_count = 1
+    if vessel_count <= 0:
+        vessel_count = 1
+
     cell_concentration = parse_numeric(cell_concentration_raw)
 
     cell_line = None
@@ -423,12 +513,34 @@ def calculate_seeding():
     if doubling_time is None or doubling_time <= 0:
         return jsonify({"error": "A valid doubling time is required."}), 400
 
+    final_cells_per_vessel = vessel.cells_at_100_confluency * confluency_fraction
+    final_cells_total = final_cells_per_vessel * vessel_count
     final_cells = vessel.cells_at_100_confluency * confluency_fraction
     growth_cycles = hours / doubling_time
     growth_factor = math.pow(2, growth_cycles)
     if growth_factor <= 0:
         return jsonify({"error": "Could not compute growth factor."}), 400
 
+    required_cells_per_vessel = final_cells_per_vessel / growth_factor
+    required_cells_total = required_cells_per_vessel * vessel_count
+    volume_needed_per_vessel_ml = (
+        required_cells_per_vessel / cell_concentration if cell_concentration else None
+    )
+    volume_needed_total_ml = (
+        volume_needed_per_vessel_ml * vessel_count if volume_needed_per_vessel_ml else None
+    )
+
+    note_suggestion = (
+        "Seeding planner: Seed "
+        f"{format_cells(required_cells_per_vessel)} cells per {vessel.name} "
+        f"({vessel.area_cm2:g} cm²) × {vessel_count} vessel(s) to reach "
+        f"{confluency_fraction * 100:.1f}% confluency in {hours:.1f} hours."
+    )
+
+    response = {
+        "vessel": vessel.name,
+        "vessel_id": vessel.id,
+        "vessel_area_cm2": vessel.area_cm2,
     required_cells = final_cells / growth_factor
     volume_needed_ml = required_cells / cell_concentration if cell_concentration else None
 
@@ -438,6 +550,25 @@ def calculate_seeding():
         "hours": hours,
         "doubling_time_used": doubling_time,
         "growth_cycles": growth_cycles,
+        "final_cells": final_cells_per_vessel,
+        "final_cells_formatted": format_cells(final_cells_per_vessel),
+        "final_cells_total": final_cells_total,
+        "final_cells_total_formatted": format_cells(final_cells_total),
+        "required_cells": required_cells_per_vessel,
+        "required_cells_formatted": format_cells(required_cells_per_vessel),
+        "required_cells_total": required_cells_total,
+        "required_cells_total_formatted": format_cells(required_cells_total),
+        "volume_needed_ml": volume_needed_per_vessel_ml,
+        "volume_needed_formatted": f"{volume_needed_per_vessel_ml:.2f} mL"
+        if volume_needed_per_vessel_ml
+        else None,
+        "volume_needed_total_ml": volume_needed_total_ml,
+        "volume_needed_total_formatted": f"{volume_needed_total_ml:.2f} mL"
+        if volume_needed_total_ml
+        else None,
+        "cell_concentration": cell_concentration,
+        "vessels_used": vessel_count,
+        "note_suggestion": note_suggestion,
         "final_cells": final_cells,
         "required_cells": required_cells,
         "required_cells_formatted": format_cells(required_cells),
@@ -446,6 +577,35 @@ def calculate_seeding():
         "cell_concentration": cell_concentration,
     }
     return jsonify(response)
+
+
+@app.route("/culture/<int:culture_id>/end", methods=["POST"])
+def end_culture(culture_id: int):
+    culture = Culture.query.get_or_404(culture_id)
+    if culture.ended_on is not None:
+        flash("Culture is already marked as ended.", "info")
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    ended_on = parse_date(request.form.get("ended_on"))
+    culture.ended_on = ended_on
+    db.session.commit()
+
+    flash(f"Culture '{culture.name}' marked as ended.", "success")
+    return redirect(url_for("view_culture", culture_id=culture.id))
+
+
+@app.route("/culture/<int:culture_id>/reactivate", methods=["POST"])
+def reactivate_culture(culture_id: int):
+    culture = Culture.query.get_or_404(culture_id)
+    if culture.ended_on is None:
+        flash("Culture is already active.", "info")
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    culture.ended_on = None
+    db.session.commit()
+
+    flash(f"Culture '{culture.name}' reactivated.", "success")
+    return redirect(url_for("view_culture", culture_id=culture.id))
 
 
 @app.context_processor

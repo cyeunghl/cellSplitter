@@ -78,8 +78,25 @@ a:hover {
   margin-bottom: 1rem;
 }
 
+.section-header.with-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
 .section-header p {
   margin-top: 0.25rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.header-actions form {
+  margin: 0;
 }
 
 .grid {
@@ -100,6 +117,11 @@ a:hover {
   box-shadow: 0 6px 20px -12px var(--shadow);
   display: flex;
   flex-direction: column;
+}
+
+.card.muted {
+  background: #f3f4f8;
+  border-style: dashed;
 }
 
 .card-header,
@@ -161,8 +183,18 @@ a:hover {
   border-color: var(--accent);
 }
 
+.button.danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
 .button.secondary:hover {
   background: #dce3ff;
+}
+
+.button.danger:hover {
+  background: #b73535;
 }
 
 .form {
@@ -220,6 +252,29 @@ textarea {
   flex-wrap: wrap;
   gap: 0.75rem;
   justify-content: flex-end;
+}
+
+label.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+label.checkbox input[type='checkbox'] {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+.status {
+  margin-top: 0.4rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.status.ended {
+  color: var(--danger);
 }
 
 .table {
