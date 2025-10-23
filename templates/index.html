@@ -72,6 +72,33 @@
           </article>
         {% endfor %}
       </div>
+      <article class="card label-card">
+        <header class="card-header">
+          <h3>Myco test labels</h3>
+          <p>Quick label text for active cultures with today&rsquo;s date and initials.</p>
+        </header>
+        <div class="card-body table-wrapper">
+          <table class="table label-table">
+            <thead>
+              <tr>
+                <th scope="col">Label text</th>
+                <th scope="col">Culture</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for culture in active_cultures %}
+                {% set label_text = today.strftime('%Y-%m-%d') ~ '\n' ~ culture.name ~ '\nCY' %}
+                <tr>
+                  <td class="wrap">
+                    <pre class="label-snippet">{{ label_text }}</pre>
+                  </td>
+                  <td>{{ culture.name }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
     {% else %}
       <p class="empty-state">No active cultures yet. Create one below to get started.</p>
     {% endif %}

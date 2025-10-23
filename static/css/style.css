@@ -380,6 +380,22 @@ label.checkbox input[type='checkbox'] {
   flex-wrap: wrap;
 }
 
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.label-card {
+  margin-top: 1.5rem;
+}
+
+.label-snippet {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 .table td.actions .button {
   padding: 0.35rem 0.75rem;
   font-size: 0.85rem;

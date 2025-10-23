@@ -273,6 +273,11 @@ function attachSeedingFormHandler() {
     if (!resultContainer) {
       return;
     }
+    if (typeof form.reportValidity === 'function' && !form.reportValidity()) {
+      resultContainer.innerHTML =
+        '<p class="error">Please resolve the highlighted fields before calculating.</p>';
+      return;
+    }
     resultContainer.textContent = 'Calculating…';
 
     const formData = new FormData(form);
@@ -285,11 +290,34 @@ function attachSeedingFormHandler() {
     };
 
     if (mode === MODE_CONFLUENCY) {
+      const vesselId = formData.get('vessel_id');
+      const targetConfluency = Number.parseFloat(formData.get('target_confluency'));
       const targetDays = Number(formData.get('target_days') || 0);
       const additionalHours = Number(formData.get('additional_hours') || 0);
       const totalHours = targetDays * 24 + additionalHours;
-      payload.vessel_id = formData.get('vessel_id');
-      payload.target_confluency = formData.get('target_confluency');
+      if (!vesselId) {
+        resultContainer.innerHTML =
+          '<p class="error">Select a vessel before calculating the seeding plan.</p>';
+        return;
+      }
+      if (!Number.isFinite(targetConfluency) || targetConfluency <= 0) {
+        resultContainer.innerHTML =
+          '<p class="error">Enter a valid target confluency above 0%.</p>';
+        return;
+      }
+      if (!Number.isFinite(totalHours) || totalHours <= 0) {
+        resultContainer.innerHTML =
+          '<p class="error">Specify a time horizon greater than zero.</p>';
+        return;
+      }
+      const vesselIdNumber = Number.parseInt(vesselId, 10);
+      if (Number.isNaN(vesselIdNumber)) {
+        resultContainer.innerHTML =
+          '<p class="error">Select a valid vessel before calculating the seeding plan.</p>';
+        return;
+      }
+      payload.vessel_id = vesselIdNumber;
+      payload.target_confluency = targetConfluency;
       payload.target_hours = totalHours;
       payload.doubling_time_override = formData.get('doubling_time_override');
       payload.vessels_used = Number(formData.get('vessels_used') || 1);

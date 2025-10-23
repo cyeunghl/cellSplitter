@@ -25,6 +25,8 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
   ThermoFisher’s “Cell Culture Useful Numbers” reference to estimate final cell yields.
 - 🏷️ **One-click labels** – Generate printer-friendly label text from the seeding planner
   and copy it straight to the clipboard.
+- 🧾 **Myco label run** – Grab a dashboard table of today’s labels for every active
+  culture—preformatted with the date and CY initials for quick mycoplasma testing.
 - 📤 **CSV export** – Download an overview of all active cultures—including the most
   recent passage details—for external reporting.
 
@@ -65,6 +67,8 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
   vessel usage, seeded cells, and planning notes without retyping.
 - Copy the generated label text after a seeding or dilution calculation to print or share
   culture labels with consistent naming.
+- Need a quick mycoplasma check run? Use the dashboard’s Myco test labels table to copy
+  today’s culture/date/CY label text in bulk.
 - End a culture when you are finished working with it to tuck it into the archived list;
   you can reactivate it later if needed. Active culture cards include a quick “End
   culture” button, while the culture detail page offers both end and reactivate options.
