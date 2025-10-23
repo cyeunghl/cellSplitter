@@ -108,6 +108,8 @@ class Passage(db.Model):
     culture = db.relationship("Culture", back_populates="passages")
     vessel = db.relationship("Vessel")
 
+    culture = db.relationship("Culture", back_populates="passages")
+
 
 class Vessel(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -253,6 +255,11 @@ def index():
         "index.html",
         active_cultures=active_cultures,
         ended_cultures=ended_cultures,
+    cultures = Culture.query.order_by(Culture.name.asc()).all()
+    cell_lines = CellLine.query.order_by(CellLine.name.asc()).all()
+    return render_template(
+        "index.html",
+        cultures=cultures,
         cell_lines=cell_lines,
         today=date.today(),
     )
@@ -508,6 +515,7 @@ def calculate_seeding():
 
     final_cells_per_vessel = vessel.cells_at_100_confluency * confluency_fraction
     final_cells_total = final_cells_per_vessel * vessel_count
+    final_cells = vessel.cells_at_100_confluency * confluency_fraction
     growth_cycles = hours / doubling_time
     growth_factor = math.pow(2, growth_cycles)
     if growth_factor <= 0:
@@ -533,6 +541,11 @@ def calculate_seeding():
         "vessel": vessel.name,
         "vessel_id": vessel.id,
         "vessel_area_cm2": vessel.area_cm2,
+    required_cells = final_cells / growth_factor
+    volume_needed_ml = required_cells / cell_concentration if cell_concentration else None
+
+    response = {
+        "vessel": vessel.name,
         "target_confluency": confluency_fraction * 100,
         "hours": hours,
         "doubling_time_used": doubling_time,
@@ -556,6 +569,12 @@ def calculate_seeding():
         "cell_concentration": cell_concentration,
         "vessels_used": vessel_count,
         "note_suggestion": note_suggestion,
+        "final_cells": final_cells,
+        "required_cells": required_cells,
+        "required_cells_formatted": format_cells(required_cells),
+        "volume_needed_ml": volume_needed_ml,
+        "volume_needed_formatted": f"{volume_needed_ml:.2f} mL" if volume_needed_ml else None,
+        "cell_concentration": cell_concentration,
     }
     return jsonify(response)
 

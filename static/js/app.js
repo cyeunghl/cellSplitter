@@ -19,6 +19,7 @@ function buildSeedingSummary(data) {
   const segments = [];
   segments.push(
     `<p><strong>Seed ${data.required_cells_formatted} cells per ${data.vessel} (${data.vessel_area_cm2} cm²)</strong> × ${data.vessels_used} vessel(s) (<strong>${data.required_cells_total_formatted}</strong> total).</p>`
+    `<p><strong>Seed ${data.required_cells_formatted} cells</strong> into a ${data.vessel}.</p>`
   );
   segments.push(
     `<p>Aim for ${data.target_confluency.toFixed(1)}% confluency in ${data.hours.toFixed(
@@ -33,6 +34,8 @@ function buildSeedingSummary(data) {
       : '';
     segments.push(
       `<p>At ${formatCells(data.cell_concentration)} cells/mL, seed <strong>${data.volume_needed_formatted}</strong> per vessel${totalVolume}.</p>`
+    segments.push(
+      `<p>At ${formatCells(data.cell_concentration)} cells/mL, seed <strong>${data.volume_needed_formatted}</strong>.</p>`
     );
   } else {
     segments.push(
@@ -41,6 +44,7 @@ function buildSeedingSummary(data) {
   }
   segments.push(
     `<p class="meta">Projected final yield: ${data.final_cells_total_formatted} cells across ${data.vessels_used} vessel(s) (${data.growth_cycles.toFixed(
+    `<p class="meta">Projected final yield: ${formatCells(data.final_cells)} cells (${data.growth_cycles.toFixed(
       2
     )} doublings).</p>`
   );
@@ -142,6 +146,20 @@ function prepareSeedingResultActions(container, data) {
 
   actionRow.append(fillButton, commitButton);
   container.appendChild(actionRow);
+function attachCopyMediaHandler() {
+  const button = document.querySelector('[data-copy-media]');
+  if (!button) {
+    return;
+  }
+  const mediaField = document.querySelector('#media-field');
+  if (!mediaField) {
+    return;
+  }
+  button.addEventListener('click', () => {
+    const media = button.getAttribute('data-media') || '';
+    mediaField.value = media;
+    mediaField.focus();
+  });
 }
 
 function attachSeedingFormHandler() {
@@ -196,5 +214,6 @@ function attachSeedingFormHandler() {
 
 document.addEventListener('DOMContentLoaded', () => {
   attachMediaCheckboxHandler();
+  attachCopyMediaHandler();
   attachSeedingFormHandler();
 });

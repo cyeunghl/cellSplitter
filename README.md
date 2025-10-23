@@ -15,6 +15,9 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
   directly into the passage log.
 - 📁 **Archive cultures** – Mark cultures as ended to move them into an archived list
   while preserving full passage history.
+- 🧪 **Media shortcuts** – Copy media recipes from the previous passage with a click.
+- 📈 **Seeding planner** – Calculate required cell numbers and seeding volumes based on
+  target confluency, time to split, vessel size, and doubling time.
 - 🧬 **Doubling-time library** – Preloaded database of common cell lines with editable
   doubling-time ranges and references.
 - 🧮 **Tissue culture vessel data** – Uses surface areas and cell capacities curated from

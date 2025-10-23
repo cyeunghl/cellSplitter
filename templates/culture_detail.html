@@ -31,6 +31,12 @@
           </form>
         {% endif %}
       </div>
+    <div class="section-header">
+      <h1>{{ culture.name }}</h1>
+      <p>
+        {{ culture.cell_line.name }} · {{ culture.cell_line.display_doubling_time() }} ·
+        Started {{ culture.start_date.strftime('%Y-%m-%d') }}
+      </p>
     </div>
     <div class="grid">
       <article class="card">
@@ -176,6 +182,60 @@
             </p>
           </div>
         {% endif %}
+        <form
+          class="card-body form"
+          method="post"
+          action="{{ url_for('add_passage', culture_id=culture.id) }}"
+        >
+          <div class="field-grid">
+            <label>
+              <span>Date</span>
+              <input type="date" name="date" value="{{ today }}" />
+            </label>
+            <label class="wide">
+              <span>Media</span>
+              <textarea
+                name="media"
+                rows="2"
+                placeholder="Document media formulation"
+                id="media-field"
+              ></textarea>
+            </label>
+            <label>
+              <span>Cell concentration (cells/mL)</span>
+              <input
+                type="text"
+                name="cell_concentration"
+                placeholder="e.g. 2.5e6"
+                value="{{ last_passage.cell_concentration if last_passage else '' }}"
+              />
+            </label>
+            <label>
+              <span>Doubling time (hours)</span>
+              <input
+                type="text"
+                name="doubling_time_hours"
+                placeholder="e.g. 22"
+                value="{{ last_passage.doubling_time_hours if last_passage else culture.cell_line.average_doubling_time }}"
+              />
+            </label>
+            <label class="wide">
+              <span>Notes</span>
+              <textarea name="notes" rows="2" placeholder="Observations"></textarea>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button
+              class="button secondary"
+              type="button"
+              data-copy-media
+              data-media="{{ last_passage.media if last_passage else '' }}"
+            >
+              Copy previous media
+            </button>
+            <button class="button primary" type="submit">Save passage</button>
+          </div>
+        </form>
       </article>
 
       <article class="card">
