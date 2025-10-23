@@ -8,7 +8,8 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 
 - 📓 **Culture journal** – Record each passage with media, cell concentrations, doubling
   times, and notes.
-- 🔁 **Auto-numbered passages** – Passage numbers increment automatically (P1, P2, …).
+- 🔁 **Auto-numbered passages** – Choose the starting passage (defaults to P1) and let the
+  app increment numbers automatically (P1, P2, …).
 - 🧪 **Media reuse** – Pull forward the previous passage's media with a single checkbox.
 - 📈 **Seeding planner** – Calculate required cell numbers and seeding volumes based on
   target confluency, time to split, vessel size, and doubling time, or plan dilutions to
@@ -50,8 +51,8 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 
 ## Usage notes
 
-- When creating a culture, the initial passage (P1) is recorded automatically with any
-  media, doubling-time, or concentration values you supply.
+- When creating a culture, you can set the initial passage number (defaults to P1) and
+  record any starting media, doubling-time, or concentration values alongside it.
 - The seeding planner defaults to the average doubling time of the selected cell line but
   lets you override it for passage-specific behavior. Switch to *Concentration to dilute*
   mode to compute how much cell slurry and media are needed to reach a desired final

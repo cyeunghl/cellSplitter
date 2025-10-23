@@ -80,7 +80,7 @@
   <section class="section">
     <div class="section-header">
       <h2>Start a new culture</h2>
-      <p>Create a culture and log its initial passage (P1).</p>
+      <p>Create a culture and log its initial passage (defaults to P1).</p>
     </div>
     <form class="form" method="post" action="{{ url_for('create_culture') }}">
       <div class="field-grid">
@@ -107,8 +107,18 @@
         </label>
       </div>
       <fieldset class="fieldset">
-        <legend>Initial passage (P1)</legend>
+        <legend>Initial passage</legend>
         <div class="field-grid">
+          <label>
+            <span>Passage number</span>
+            <input
+              type="number"
+              name="initial_passage_number"
+              value="1"
+              min="1"
+              step="1"
+            />
+          </label>
           <label>
             <span>Media</span>
             <input type="text" name="initial_media" placeholder="e.g. DMEM + 10% FBS" />

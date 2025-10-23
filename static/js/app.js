@@ -18,6 +18,53 @@ function formatCells(value) {
   return value.toFixed(0);
 }
 
+function formatWithSignificantDigits(value, digits = 2) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  if (value === 0) {
+    return '0';
+  }
+  const formatted = Number.parseFloat(value.toPrecision(digits));
+  return Number.isInteger(formatted) ? formatted.toString() : formatted.toString();
+}
+
+function formatCellsForLabel(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return '—';
+  }
+  if (numericValue === 0) {
+    return '0';
+  }
+
+  const sign = numericValue < 0 ? '-' : '';
+  const absolute = Math.abs(numericValue);
+
+  if (absolute >= 1_000_000) {
+    const millions = absolute / 1_000_000;
+    const formatted = formatWithSignificantDigits(millions, 2);
+    return formatted ? `${sign}${formatted}M` : '—';
+  }
+
+  if (absolute >= 1_000) {
+    const thousands = absolute / 1_000;
+    const formatted = formatWithSignificantDigits(thousands, 2);
+    if (!formatted) {
+      return '—';
+    }
+    const thousandsNumeric = Number(formatted);
+    if (Number.isFinite(thousandsNumeric) && thousandsNumeric >= 1000) {
+      const millionsFormatted = formatWithSignificantDigits(thousandsNumeric / 1000, 2);
+      return millionsFormatted ? `${sign}${millionsFormatted}M` : '—';
+    }
+    return `${sign}${formatted}K`;
+  }
+
+  const formatted = formatWithSignificantDigits(absolute, 2);
+  return formatted ? `${sign}${formatted}` : '—';
+}
+
 function buildSeedingSummary(data) {
   const segments = [];
   if (data.mode === MODE_DILUTION) {
@@ -245,30 +292,44 @@ async function copyLabelToClipboard(data) {
     return;
   }
 
-  const mediaField = document.querySelector('#media-field');
-  const media = mediaField ? mediaField.value.trim() : '';
   const today = form.dataset.today || new Date().toISOString().slice(0, 10);
   const cultureName = form.dataset.cultureName || '';
-  const cellsText = (() => {
-    if (data.mode === MODE_DILUTION) {
-      return data.cells_needed_formatted || formatCells(data.cells_needed);
+  let cellsText = '—';
+  if (data.mode === MODE_DILUTION) {
+    cellsText = formatCellsForLabel(data.cells_needed);
+  } else {
+    const candidates = [
+      data.required_cells_total,
+      data.required_cells,
+      data.final_cells_total,
+    ];
+    for (const candidate of candidates) {
+      const formatted = formatCellsForLabel(candidate);
+      if (formatted !== '—') {
+        cellsText = formatted;
+        break;
+      }
     }
-    return (
+  }
+
+  if (cellsText === '—') {
+    cellsText =
+      data.cells_needed_formatted ||
       data.required_cells_total_formatted ||
-      data.required_cells_total ||
       data.required_cells_formatted ||
-      formatCells(data.required_cells)
-    );
-  })();
+      data.cells_needed ||
+      data.required_cells_total ||
+      data.required_cells ||
+      '—';
+  }
 
   const parts = [];
   if (cultureName) {
     parts.push(`Culture: ${cultureName}`);
   }
   parts.push(`Date: ${today}`);
-  parts.push(`Media: ${media || '—'}`);
 
-  parts.push(`Cells seeded: ${cellsText} cells`);
+  parts.push(`Cells seeded: ${cellsText}`);
 
   const labelText = parts.join(' | ');
 

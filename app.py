@@ -299,6 +299,16 @@ def create_culture():
     start_date = parse_date(request.form.get("start_date"))
     culture_notes = request.form.get("culture_notes")
 
+    passage_number_raw = request.form.get("initial_passage_number")
+    initial_passage_number = 1
+    if passage_number_raw is not None and passage_number_raw != "":
+        try:
+            candidate = int(passage_number_raw)
+        except (TypeError, ValueError):
+            candidate = None
+        if candidate is not None and candidate >= 1:
+            initial_passage_number = candidate
+
     culture = Culture(
         name=name,
         cell_line=cell_line,
@@ -315,7 +325,7 @@ def create_culture():
 
     passage = Passage(
         culture=culture,
-        passage_number=1,
+        passage_number=initial_passage_number,
         date=start_date,
         media=initial_media,
         cell_concentration=initial_cell_concentration,
@@ -325,7 +335,10 @@ def create_culture():
     db.session.add(passage)
     db.session.commit()
 
-    flash(f"Culture '{culture.name}' created with initial passage P1.", "success")
+    flash(
+        f"Culture '{culture.name}' created with initial passage P{initial_passage_number}.",
+        "success",
+    )
     return redirect(url_for("view_culture", culture_id=culture.id))
 
 
