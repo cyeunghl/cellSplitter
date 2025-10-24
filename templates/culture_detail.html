@@ -329,7 +329,7 @@
             <input
               type="text"
               name="cell_concentration"
-              value="{{ last_passage.cell_concentration if last_passage else '' }}"
+              value="{{ ('%g' % last_passage.cell_concentration) if last_passage and last_passage.cell_concentration else '1e6' }}"
               placeholder="e.g. 1.5e6"
               required
             />

@@ -262,6 +262,44 @@ function prepareSeedingResultActions(container, data) {
   container.appendChild(actionRow);
 }
 
+async function copyPlainText(text) {
+  const labelText = text != null ? String(text) : '';
+  if (!labelText.trim()) {
+    return;
+  }
+
+  const fallbackCopy = () => {
+    const textarea = document.createElement('textarea');
+    textarea.value = labelText;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'absolute';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    let copied = false;
+    try {
+      copied = document.execCommand('copy');
+    } catch (error) {
+      copied = false;
+    }
+    document.body.removeChild(textarea);
+    if (!copied) {
+      window.prompt('Copy the label text below:', labelText);
+    }
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(labelText);
+      return;
+    } catch (error) {
+      // Fall through to fallback copy handling below.
+    }
+  }
+
+  fallbackCopy();
+}
+
 function attachSeedingFormHandler() {
   const form = document.querySelector('#seeding-form');
   if (!form) {
@@ -282,11 +320,17 @@ function attachSeedingFormHandler() {
 
     const formData = new FormData(form);
     const mode = form.querySelector('input[name="mode"]:checked')?.value || MODE_CONFLUENCY;
+    const cellConcentrationInput = (formData.get('cell_concentration') || '').trim();
+    if (!cellConcentrationInput) {
+      resultContainer.innerHTML =
+        '<p class="error">Enter the starting cell concentration (e.g. 1e6 cells/mL) before calculating.</p>';
+      return;
+    }
 
     const payload = {
       culture_id: form.dataset.cultureId,
       mode,
-      cell_concentration: formData.get('cell_concentration'),
+      cell_concentration: cellConcentrationInput,
     };
 
     if (mode === MODE_CONFLUENCY) {
@@ -407,36 +451,7 @@ async function copyLabelToClipboard(data) {
   parts.push(`Cells seeded: ${cellsText}`);
 
   const labelText = parts.join('\n');
-
-  const fallbackCopy = () => {
-    const textarea = document.createElement('textarea');
-    textarea.value = labelText;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'absolute';
-    textarea.style.left = '-9999px';
-    document.body.appendChild(textarea);
-    textarea.select();
-    let copied = false;
-    try {
-      copied = document.execCommand('copy');
-    } catch (error) {
-      copied = false;
-    }
-    document.body.removeChild(textarea);
-    if (!copied) {
-      window.prompt('Copy the label text below:', labelText);
-    }
-  };
-
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    try {
-      await navigator.clipboard.writeText(labelText);
-    } catch (error) {
-      fallbackCopy();
-    }
-  } else {
-    fallbackCopy();
-  }
+  await copyPlainText(labelText);
 }
 
 function attachModeSwitcher() {
@@ -513,9 +528,24 @@ function attachDilutionModeSwitcher() {
   update();
 }
 
+function attachMycoLabelCopyHandlers() {
+  const buttons = document.querySelectorAll('.copy-myco-label');
+  if (!buttons.length) {
+    return;
+  }
+
+  buttons.forEach((button) => {
+    button.addEventListener('click', async () => {
+      const labelText = button.dataset.labelText || '';
+      await copyPlainText(labelText);
+    });
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   attachMediaCheckboxHandler();
   attachModeSwitcher();
   attachDilutionModeSwitcher();
   attachSeedingFormHandler();
+  attachMycoLabelCopyHandlers();
 });

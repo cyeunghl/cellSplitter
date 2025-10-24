@@ -496,7 +496,9 @@ def calculate_seeding():
     cell_concentration = parse_numeric(cell_concentration_raw)
 
     if cell_concentration is None or cell_concentration <= 0:
-        return jsonify({"error": "Provide a valid starting cell concentration."}), 400
+        return jsonify(
+            {"error": "Provide a valid starting cell concentration (e.g. 1e6 cells/mL)."}
+        ), 400
 
     if mode == "dilution":
         input_mode = (payload.get("dilution_input_mode") or "concentration").strip().lower()

@@ -388,6 +388,16 @@ label.checkbox input[type='checkbox'] {
   margin-top: 1.5rem;
 }
 
+.label-snippet-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.label-snippet-row .label-snippet {
+  flex: 1;
+}
+
 .label-snippet {
   margin: 0;
   white-space: pre-wrap;

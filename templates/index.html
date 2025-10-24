@@ -87,10 +87,20 @@
             </thead>
             <tbody>
               {% for culture in active_cultures %}
-                {% set label_text = today.strftime('%Y-%m-%d') ~ '\n' ~ culture.name ~ '\nCY' %}
+                {% set label_text = today.strftime('%Y-%m-%d') ~ ' ' ~ culture.name ~ ' CY' %}
                 <tr>
                   <td class="wrap">
-                    <pre class="label-snippet">{{ label_text }}</pre>
+                    <div class="label-snippet-row">
+                      <pre class="label-snippet">{{ label_text }}</pre>
+                      <button
+                        type="button"
+                        class="button ghost copy-myco-label"
+                        data-label-text="{{ label_text }}"
+                        aria-label="Copy myco label for {{ culture.name }}"
+                      >
+                        Copy
+                      </button>
+                    </div>
                   </td>
                   <td>{{ culture.name }}</td>
                 </tr>
