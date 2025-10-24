@@ -963,8 +963,7 @@ function initBulkProcessing() {
     if (existing.includes(suggestion)) {
       return;
     }
-    notesField.value = existing ? `${existing}
-${suggestion}` : suggestion;
+    notesField.value = existing ? `${existing}\n${suggestion}` : suggestion;
   };
 
   const renderPlannerRows = (ids) => {
