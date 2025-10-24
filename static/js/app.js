@@ -1,6 +1,47 @@
 const MODE_CONFLUENCY = 'confluency';
 const MODE_DILUTION = 'dilution';
 
+function parseNumericInput(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'boolean') {
+    return null;
+  }
+  const cleaned = String(value).trim();
+  if (!cleaned) {
+    return null;
+  }
+  const normalized = cleaned.replace(/,/g, '').replace(/\s+/g, '').toUpperCase();
+  let multiplier = 1;
+  let numericPortion = normalized;
+  if (numericPortion.endsWith('K')) {
+    multiplier = 1_000;
+    numericPortion = numericPortion.slice(0, -1);
+  } else if (numericPortion.endsWith('M')) {
+    multiplier = 1_000_000;
+    numericPortion = numericPortion.slice(0, -1);
+  } else if (numericPortion.endsWith('B')) {
+    multiplier = 1_000_000_000;
+    numericPortion = numericPortion.slice(0, -1);
+  }
+  let parsed = Number.parseFloat(numericPortion);
+  if (Number.isNaN(parsed)) {
+    parsed = Number.parseFloat(numericPortion.replace(/E/g, 'e'));
+  }
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+  const numericValue = parsed * multiplier;
+  if (!Number.isFinite(numericValue)) {
+    return null;
+  }
+  return numericValue;
+}
+
 function formatCells(value) {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return '—';
@@ -804,7 +845,6 @@ function initBulkProcessing() {
   const selectAllButton = bulkCard.querySelector('[data-bulk-select-all]');
   const copyButton = bulkCard.querySelector('[data-bulk-generate-copy]');
   const startButton = bulkCard.querySelector('[data-bulk-start]');
-  const labelsButton = bulkCard.querySelector('[data-bulk-copy-labels]');
   const copyOutput = bulkCard.querySelector('#bulk-copy-output');
   const workflow = bulkCard.querySelector('[data-bulk-workflow]');
   const harvestForm = bulkCard.querySelector('[data-bulk-harvest-form]');
@@ -1460,6 +1500,7 @@ function initBulkProcessing() {
     }
 
     const lines = [];
+    const flattenedLines = [];
     const tableWrapper = document.createElement('div');
     tableWrapper.className = 'table-wrapper';
     const table = document.createElement('table');
@@ -1476,6 +1517,7 @@ function initBulkProcessing() {
         return;
       }
       lines.push(labelText);
+      flattenedLines.push(labelText.replace(/\s*\n\s*/g, ' · '));
       const row = tbody.insertRow();
       const cultureCell = row.insertCell();
       const culture = cultureMap.get(id);
@@ -1511,7 +1553,7 @@ function initBulkProcessing() {
     copyAllButton.className = 'button secondary';
     copyAllButton.textContent = 'Copy all labels';
     copyAllButton.addEventListener('click', async () => {
-      await copyPlainText(lines.join('\n'));
+      await copyPlainText(flattenedLines.join('; '));
     });
     labelOutput.appendChild(copyAllButton);
     labelOutput.hidden = false;
@@ -1822,24 +1864,6 @@ function initBulkProcessing() {
     });
   }
 
-  if (labelsButton) {
-    labelsButton.addEventListener('click', async () => {
-      const ids = getSelectedIds();
-      renderLabelTable(ids);
-      const targetIds = ids && ids.length ? ids : activeIds;
-      if (!targetIds.length) {
-        return;
-      }
-      const labelTexts = targetIds
-        .map((id) => buildLabelText(id))
-        .filter((text) => typeof text === 'string' && text.trim().length);
-      if (!labelTexts.length) {
-        return;
-      }
-      await copyPlainText(labelTexts.join('\n'));
-    });
-  }
-
   if (harvestTab) {
     harvestTab.addEventListener('click', () => {
       if (workflow && !workflow.hidden) {
@@ -1913,9 +1937,9 @@ function initBulkProcessing() {
         const volInput = row.querySelector('.bulk-harvest-volume');
         const concValue = concInput ? concInput.value.trim() : '';
         const volValue = volInput ? volInput.value.trim() : '';
-        const concNumber = Number.parseFloat(concValue);
-        const volNumber = Number.parseFloat(volValue);
-        if (!concValue || !Number.isFinite(concNumber) || concNumber <= 0) {
+        const concNumber = parseNumericInput(concValue);
+        const volNumber = parseNumericInput(volValue);
+        if (!concValue || concNumber === null || concNumber <= 0) {
           hasError = true;
           showStatus(
             harvestStatus,
@@ -1924,7 +1948,7 @@ function initBulkProcessing() {
           );
           return;
         }
-        if (!volValue || !Number.isFinite(volNumber) || volNumber <= 0) {
+        if (!volValue || volNumber === null || volNumber <= 0) {
           hasError = true;
           showStatus(harvestStatus, `Enter a valid slurry volume for ${name}.`, 'error');
           return;
