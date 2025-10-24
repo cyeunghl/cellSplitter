@@ -90,7 +90,9 @@
                         data-print-culture
                         data-cell-line="{{ culture.cell_line.name }}"
                         data-passage-number="{{ passage.passage_number }}"
-                        data-date="{{ today.isoformat() }}"
+                        data-date="{{ passage.date.strftime('%Y-%m-%d') }}"
+                        data-seeded="{{ passage.seeded_cells | format_cells if passage.seeded_cells is not none else '' }}"
+                        data-media="{{ passage.media or '' }}"
                       >
                         Copy culture
                       </button>

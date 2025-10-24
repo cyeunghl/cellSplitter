@@ -55,6 +55,9 @@
                   </dd>
                 </div>
               </dl>
+              {% if culture.latest_passage and culture.latest_passage.passage_number > 20 %}
+                <p class="warning-text">Time to refresh and thaw new cell line</p>
+              {% endif %}
             </div>
             <footer class="card-footer actions">
               <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">
@@ -106,7 +109,7 @@
             </thead>
             <tbody>
               {% for culture in active_cultures %}
-                {% set label_text = today.strftime('%Y-%m-%d') ~ ' ' ~ culture.name ~ ' CY' %}
+                {% set label_text = culture.name ~ ' ' ~ today.strftime('%Y-%m-%d') ~ ' CY' %}
                 <tr>
                   <td class="select-cell">
                     <input
@@ -124,6 +127,264 @@
               {% endfor %}
             </tbody>
           </table>
+        </div>
+      </article>
+      <article class="card bulk-card">
+        <header class="card-header">
+          <h3>Bulk process cultures</h3>
+          <p>Select multiple cultures to capture measurements, log passages, and prepare labels together.</p>
+        </header>
+        <div
+          class="card-body"
+          data-bulk-card
+          data-default-vessel="{{ default_vessel_id or '' }}"
+          data-today="{{ today }}"
+        >
+          <div class="bulk-selection" data-bulk-selection>
+            <p>Select cultures to include:</p>
+            <div class="bulk-selection-grid">
+              {% for culture in active_cultures %}
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    class="bulk-culture-select"
+                    value="{{ culture.id }}"
+                    data-culture-id="{{ culture.id }}"
+                    aria-label="Select {{ culture.name }} for bulk processing"
+                  />
+                  <span>{{ culture.name }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="bulk-actions">
+            <button type="button" class="button ghost" data-bulk-select-all>Select all</button>
+            <button type="button" class="button secondary" data-bulk-generate-copy>
+              Generate copy table
+            </button>
+            <button type="button" class="button secondary" data-bulk-prepare-passages>
+              Prepare bulk passages
+            </button>
+            <button type="button" class="button secondary" data-bulk-copy-labels>
+              Copy labels
+            </button>
+          </div>
+          <div class="bulk-output" id="bulk-copy-output" hidden></div>
+          <form class="form bulk-passage-form" id="bulk-passage-form" hidden data-bulk-form>
+            <div class="table-wrapper">
+              <table class="table bulk-passage-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Culture</th>
+                    <th scope="col">Harvest</th>
+                    <th scope="col">Seeding planner</th>
+                    <th scope="col">Passage details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for culture in active_cultures %}
+                    {% set info = bulk_cultures.get(culture.id) %}
+                    <tr
+                      data-bulk-row
+                      data-culture-id="{{ culture.id }}"
+                      data-next-passage="{{ info.next_passage_number if info else culture.next_passage_number }}"
+                      hidden
+                    >
+                      <td>
+                        <strong>{{ culture.name }}</strong>
+                        <p class="meta">
+                          Next: P{{ info.next_passage_number if info else culture.next_passage_number }}
+                        </p>
+                      </td>
+                      <td class="bulk-cell">
+                        <div class="field-stack">
+                          <label>
+                            <span>Measured concentration (cells/mL)</span>
+                            <input
+                              type="text"
+                              class="bulk-measured-concentration"
+                              value="{{ '%g' % info.measured_cell_concentration if info and info.measured_cell_concentration is not none else '' }}"
+                            />
+                          </label>
+                          <label>
+                            <span>Slurry volume (mL)</span>
+                            <input
+                              type="text"
+                              class="bulk-measured-volume"
+                              value="{{ '%g' % info.measured_slurry_volume_ml if info and info.measured_slurry_volume_ml is not none else '' }}"
+                            />
+                          </label>
+                          <label>
+                            <span>Measured yield (M cells)</span>
+                            <input
+                              type="text"
+                              class="bulk-measured-yield"
+                              value="{{ '%g' % info.measured_yield_millions if info and info.measured_yield_millions is not none else '' }}"
+                            />
+                          </label>
+                        </div>
+                      </td>
+                      <td class="bulk-cell">
+                        <div class="field-stack">
+                          <label>
+                            <span>Planner mode</span>
+                            <select class="bulk-mode">
+                              <option value="confluency">Target confluency</option>
+                              <option value="dilution">Concentration to dilute</option>
+                            </select>
+                          </label>
+                          <div class="bulk-mode-section" data-bulk-mode-section="confluency">
+                            <label>
+                              <span>Vessel</span>
+                              <select class="bulk-vessel">
+                                <option value="">Select vessel…</option>
+                                {% for vessel in vessels %}
+                                  <option
+                                    value="{{ vessel.id }}"
+                                    {% if info and info.default_vessel_id and info.default_vessel_id == vessel.id %}selected{% endif %}
+                                  >
+                                    {{ vessel.name }}
+                                  </option>
+                                {% endfor %}
+                              </select>
+                            </label>
+                            <label>
+                              <span>Target confluency (%)</span>
+                              <input type="text" class="bulk-target-confluency" />
+                            </label>
+                            <label>
+                              <span>Hours until split</span>
+                              <input type="text" class="bulk-hours" />
+                            </label>
+                            <label>
+                              <span>Vessels used</span>
+                              <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                class="bulk-vessels-used"
+                                value="{{ info.latest_vessels_used if info and info.latest_vessels_used else 1 }}"
+                              />
+                            </label>
+                            <label>
+                              <span>Doubling time override (h)</span>
+                              <input
+                                type="text"
+                                class="bulk-doubling-override"
+                                value="{{ '%g' % info.default_doubling_time if info and info.default_doubling_time is not none else '' }}"
+                              />
+                            </label>
+                          </div>
+                          <div class="bulk-mode-section" data-bulk-mode-section="dilution" hidden>
+                            <div class="bulk-dilution-toggle">
+                              <label class="radio">
+                                <input
+                                  type="radio"
+                                  name="bulk-dilution-mode-{{ culture.id }}"
+                                  value="concentration"
+                                  data-bulk-dilution-mode
+                                  checked
+                                />
+                                <span>Final concentration</span>
+                              </label>
+                              <label class="radio">
+                                <input
+                                  type="radio"
+                                  name="bulk-dilution-mode-{{ culture.id }}"
+                                  value="cells"
+                                  data-bulk-dilution-mode
+                                />
+                                <span>Cells per portion</span>
+                              </label>
+                            </div>
+                            <div class="bulk-dilution-section" data-bulk-dilution-section="concentration">
+                              <label>
+                                <span>Final concentration (cells/mL)</span>
+                                <input type="text" class="bulk-final-concentration" value="5e5" />
+                              </label>
+                            </div>
+                            <div class="bulk-dilution-section" data-bulk-dilution-section="cells" hidden>
+                              <label>
+                                <span>Cells to seed (cells)</span>
+                                <input type="text" class="bulk-cells-to-seed" />
+                              </label>
+                              <label>
+                                <span>Volume per portion (mL)</span>
+                                <input type="text" class="bulk-volume-per-seed" />
+                              </label>
+                            </div>
+                            <label>
+                              <span>Total volume (mL)</span>
+                              <input type="text" class="bulk-total-volume" value="20" />
+                            </label>
+                          </div>
+                          <label>
+                            <span>Starting concentration (cells/mL)</span>
+                            <input
+                              type="text"
+                              class="bulk-cell-concentration"
+                              value="{{ '%g' % info.default_cell_concentration if info and info.default_cell_concentration is not none else '1e6' }}"
+                            />
+                          </label>
+                          <div class="form-actions inline">
+                            <button type="button" class="button secondary small bulk-calc">Calculate</button>
+                          </div>
+                          <div class="bulk-result" data-bulk-result>
+                            Enter planner inputs and calculate to preview guidance.
+                          </div>
+                        </div>
+                      </td>
+                      <td class="bulk-cell">
+                        <div class="field-stack">
+                          <label>
+                            <span>Date</span>
+                            <input type="date" class="bulk-date" value="{{ today }}" />
+                          </label>
+                          <label>
+                            <span>Media</span>
+                            <textarea class="bulk-media" rows="2">{{ info.latest_media if info else '' }}</textarea>
+                          </label>
+                          <label class="checkbox">
+                            <input
+                              type="checkbox"
+                              class="bulk-use-previous"
+                              data-media="{{ info.latest_media if info else '' }}"
+                            />
+                            <span>Use previous media</span>
+                          </label>
+                          <label>
+                            <span>Cells seeded (cells)</span>
+                            <input
+                              type="text"
+                              class="bulk-seeded"
+                              value="{{ '%g' % info.latest_seeded_cells if info and info.latest_seeded_cells is not none else '' }}"
+                            />
+                          </label>
+                          <label>
+                            <span>Doubling time (h)</span>
+                            <input
+                              type="text"
+                              class="bulk-doubling"
+                              value="{{ '%g' % info.default_doubling_time if info and info.default_doubling_time is not none else '' }}"
+                            />
+                          </label>
+                          <label>
+                            <span>Notes</span>
+                            <textarea class="bulk-notes" rows="2"></textarea>
+                          </label>
+                        </div>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <div class="form-actions">
+              <button class="button primary" type="submit">Save passages</button>
+            </div>
+            <p class="form-hint bulk-status" data-bulk-status></p>
+          </form>
+          <div class="bulk-output" id="bulk-label-output" hidden></div>
         </div>
       </article>
     {% else %}
@@ -310,5 +571,14 @@
         {% endfor %}
       </div>
     </section>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  {% if active_cultures %}
+    <script type="application/json" id="bulk-culture-data">
+      {{ bulk_cultures_json | safe }}
+    </script>
   {% endif %}
 {% endblock %}

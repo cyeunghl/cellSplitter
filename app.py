@@ -333,11 +333,74 @@ def index():
         .all()
     )
     cell_lines = CellLine.query.order_by(CellLine.name.asc()).all()
+    vessels = Vessel.query.order_by(Vessel.area_cm2.asc()).all()
+
+    t75_vessel_id = None
+    for vessel in vessels:
+        if vessel.name.lower().startswith("t75"):
+            t75_vessel_id = vessel.id
+            break
+
+    bulk_culture_payload: list[dict] = []
+    for culture in active_cultures:
+        latest = culture.latest_passage
+        default_cell_concentration = culture.measured_cell_concentration
+        if default_cell_concentration is None and latest and latest.cell_concentration:
+            default_cell_concentration = latest.cell_concentration
+        if default_cell_concentration is None:
+            default_cell_concentration = 1_000_000
+
+        default_vessel_id = None
+        if latest and latest.vessel_id:
+            default_vessel_id = latest.vessel_id
+        elif t75_vessel_id is not None:
+            default_vessel_id = t75_vessel_id
+
+        latest_seeded_display = None
+        latest_seeded_value = None
+        if latest and latest.seeded_cells is not None:
+            latest_seeded_value = latest.seeded_cells
+            latest_seeded_display = format_cells(latest.seeded_cells)
+
+        measured_yield_millions = None
+        if latest and latest.measured_yield_cells:
+            measured_yield_millions = latest.measured_yield_cells / 1_000_000
+
+        culture_payload = {
+            "id": culture.id,
+            "name": culture.name,
+            "cell_line": culture.cell_line.name,
+            "latest_passage_number": latest.passage_number if latest else None,
+            "latest_passage_date": latest.date.isoformat() if latest else None,
+            "latest_media": latest.media if latest else "",
+            "latest_seeded_cells": latest_seeded_value,
+            "latest_seeded_display": latest_seeded_display,
+            "latest_vessels_used": latest.vessels_used if latest else None,
+            "next_passage_number": culture.next_passage_number,
+            "default_cell_concentration": default_cell_concentration,
+            "default_vessel_id": default_vessel_id,
+            "default_doubling_time": (
+                latest.doubling_time_hours
+                if latest and latest.doubling_time_hours
+                else culture.cell_line.average_doubling_time
+            ),
+            "measured_cell_concentration": culture.measured_cell_concentration,
+            "measured_slurry_volume_ml": culture.measured_slurry_volume_ml,
+            "measured_yield_millions": measured_yield_millions,
+        }
+        bulk_culture_payload.append(culture_payload)
+
+    bulk_culture_map = {entry["id"]: entry for entry in bulk_culture_payload}
+
     return render_template(
         "index.html",
         active_cultures=active_cultures,
         ended_cultures=ended_cultures,
         cell_lines=cell_lines,
+        vessels=vessels,
+        bulk_cultures=bulk_culture_map,
+        bulk_cultures_json=json.dumps(bulk_culture_payload),
+        default_vessel_id=t75_vessel_id,
         today=date.today(),
     )
 
@@ -808,6 +871,122 @@ def calculate_seeding():
         "note_suggestion": note_suggestion,
     }
     return jsonify(response)
+
+
+@app.route("/api/bulk-passages", methods=["POST"])
+def create_bulk_passages():
+    payload = request.get_json(silent=True) or {}
+    entries = payload.get("entries")
+    if not isinstance(entries, list) or not entries:
+        return jsonify({"error": "Select at least one culture to process."}), 400
+
+    created_passages: list[dict] = []
+    passage_counters: dict[int, int] = {}
+
+    for entry in entries:
+        culture_id = entry.get("culture_id")
+        try:
+            culture_id_int = int(culture_id)
+        except (TypeError, ValueError):
+            db.session.rollback()
+            return jsonify({"error": "Invalid culture identifier supplied."}), 400
+
+        culture = Culture.query.get(culture_id_int)
+        if culture is None:
+            db.session.rollback()
+            return jsonify({"error": f"Culture {culture_id_int} could not be found."}), 404
+        if not culture.is_active:
+            db.session.rollback()
+            return jsonify(
+                {"error": f"Culture '{culture.name}' has been ended and cannot be updated."}
+            ), 400
+
+        last_passage = culture.latest_passage
+        passage_number = passage_counters.get(culture.id)
+        if passage_number is None:
+            passage_number = culture.next_passage_number
+        passage_counters[culture.id] = passage_number + 1
+
+        passage_date = parse_date(entry.get("date"))
+        media = entry.get("media") or None
+        notes = entry.get("notes") or None
+        cell_concentration = parse_numeric(entry.get("cell_concentration"))
+        doubling_time = parse_numeric(entry.get("doubling_time_hours"))
+        seeded_cells = parse_numeric(entry.get("seeded_cells"))
+        measured_yield_cells = parse_millions(entry.get("measured_yield_millions"))
+
+        if entry.get("use_previous_media") and last_passage:
+            media = last_passage.media
+
+        vessel = None
+        vessel_id_raw = entry.get("vessel_id")
+        if vessel_id_raw not in (None, ""):
+            try:
+                vessel_id = int(vessel_id_raw)
+            except (TypeError, ValueError):
+                db.session.rollback()
+                return jsonify({"error": "Invalid vessel selection."}), 400
+            vessel = Vessel.query.get(vessel_id)
+            if vessel is None:
+                db.session.rollback()
+                return jsonify({"error": "Selected vessel could not be found."}), 404
+
+        vessels_used = None
+        vessels_used_raw = entry.get("vessels_used")
+        if vessels_used_raw not in (None, ""):
+            try:
+                vessels_candidate = int(vessels_used_raw)
+            except (TypeError, ValueError):
+                db.session.rollback()
+                return jsonify({"error": "Number of vessels must be a whole number."}), 400
+            if vessels_candidate > 0:
+                vessels_used = vessels_candidate
+
+        measured_cell_concentration = parse_numeric(
+            entry.get("measured_cell_concentration")
+        )
+        measured_slurry_volume = parse_numeric(entry.get("measured_slurry_volume_ml"))
+
+        if measured_cell_concentration is not None:
+            culture.measured_cell_concentration = measured_cell_concentration
+        if measured_slurry_volume is not None:
+            culture.measured_slurry_volume_ml = measured_slurry_volume
+
+        passage = Passage(
+            culture=culture,
+            passage_number=passage_number,
+            date=passage_date,
+            media=media,
+            cell_concentration=cell_concentration,
+            doubling_time_hours=doubling_time,
+            notes=notes,
+            vessel=vessel,
+            vessels_used=vessels_used,
+            seeded_cells=seeded_cells,
+            measured_yield_cells=measured_yield_cells,
+        )
+        db.session.add(passage)
+
+        created_passages.append(
+            {
+                "culture_id": culture.id,
+                "culture_name": culture.name,
+                "passage_number": passage_number,
+                "date": passage_date.strftime("%Y-%m-%d"),
+                "media": media or "",
+                "seeded_cells": seeded_cells,
+                "seeded_cells_formatted": format_cells(seeded_cells)
+                if seeded_cells is not None
+                else None,
+            }
+        )
+
+    if not created_passages:
+        db.session.rollback()
+        return jsonify({"error": "No passages were created."}), 400
+
+    db.session.commit()
+    return jsonify({"success": True, "created": len(created_passages), "passages": created_passages})
 
 
 @app.route("/export/cultures.csv")

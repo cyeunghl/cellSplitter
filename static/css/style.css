@@ -358,6 +358,122 @@ label.checkbox input[type='checkbox'] {
   color: var(--danger);
 }
 
+.warning-text {
+  margin-top: 0.5rem;
+  color: #b45309;
+  font-weight: 600;
+}
+
+.bulk-card .card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.bulk-selection p {
+  margin-bottom: 0.5rem;
+  color: var(--text-muted);
+}
+
+.bulk-selection-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.bulk-selection-grid .checkbox {
+  margin: 0;
+}
+
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.bulk-output {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.bulk-passage-table th,
+.bulk-passage-table td {
+  vertical-align: top;
+}
+
+.bulk-cell .field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.bulk-cell label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.bulk-mode-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(52, 88, 235, 0.04);
+}
+
+.bulk-dilution-toggle {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.bulk-dilution-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.bulk-result {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.bulk-result p {
+  margin: 0 0 0.5rem;
+}
+
+.bulk-label-table pre,
+.bulk-copy-table pre {
+  margin: 0;
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.bulk-status.error {
+  color: var(--danger);
+}
+
+.form-actions.inline {
+  justify-content: flex-start;
+}
+
+.bulk-label-table .actions,
+.bulk-copy-table .actions {
+  text-align: right;
+}
+
+.bulk-card .table-wrapper {
+  max-height: 420px;
+  overflow: auto;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
