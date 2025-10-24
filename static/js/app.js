@@ -528,44 +528,89 @@ function attachDilutionModeSwitcher() {
   update();
 }
 
-function attachMycoTableCopyHandler() {
-  const button = document.querySelector('.copy-myco-table');
-  if (!button) {
+function attachMycoTableCopyHandlers() {
+  const buttons = document.querySelectorAll('.copy-myco-table');
+  if (!buttons.length) {
     return;
   }
 
-  const tableId = button.dataset.tableId;
-  if (!tableId) {
-    return;
-  }
-
-  const table = document.getElementById(tableId);
-  if (!table) {
-    return;
-  }
-
-  button.addEventListener('click', async () => {
-    const rows = Array.from(table.querySelectorAll('tbody tr'));
-    const lines = rows
-      .map((row) => {
-        const label = row.querySelector('.label-snippet');
-        const culture = row.querySelector('.myco-culture');
-        const labelText = label ? label.textContent.trim() : '';
-        const cultureText = culture ? culture.textContent.trim() : '';
-        if (!labelText && !cultureText) {
-          return '';
-        }
-        if (!cultureText) {
-          return labelText;
-        }
-        return `${labelText}\t${cultureText}`;
-      })
-      .filter((line) => line);
-
-    const tableText = lines.join('\n');
-    if (tableText) {
-      await copyPlainText(tableText);
+  buttons.forEach((button) => {
+    const tableId = button.dataset.tableId;
+    if (!tableId) {
+      return;
     }
+
+    const table = document.getElementById(tableId);
+    if (!table) {
+      return;
+    }
+
+    button.addEventListener('click', async () => {
+      const rows = Array.from(table.querySelectorAll('tbody tr'));
+      if (!rows.length) {
+        return;
+      }
+
+      const selectedRows = rows.filter((row) => {
+        const checkbox = row.querySelector('.label-select');
+        return checkbox ? checkbox.checked : false;
+      });
+
+      const rowsToCopy = selectedRows.length ? selectedRows : rows;
+      const lines = rowsToCopy
+        .map((row) => {
+          const label = row.querySelector('.label-snippet');
+          const culture = row.querySelector('.myco-culture');
+          const labelText = label ? label.textContent.trim() : '';
+          const cultureText = culture ? culture.textContent.trim() : '';
+          if (!labelText && !cultureText) {
+            return '';
+          }
+          if (!cultureText) {
+            return labelText;
+          }
+          return `${labelText}\t${cultureText}`;
+        })
+        .filter((line) => line);
+
+      const tableText = lines.join('\n');
+      if (tableText) {
+        await copyPlainText(tableText);
+      }
+    });
+  });
+}
+
+function attachMycoSelectAllHandlers() {
+  const buttons = document.querySelectorAll('.copy-myco-select-all');
+  if (!buttons.length) {
+    return;
+  }
+
+  buttons.forEach((button) => {
+    const tableId = button.dataset.tableId;
+    if (!tableId) {
+      return;
+    }
+
+    const table = document.getElementById(tableId);
+    if (!table) {
+      return;
+    }
+
+    button.addEventListener('click', () => {
+      const checkboxes = Array.from(
+        table.querySelectorAll('tbody .label-select')
+      );
+      if (!checkboxes.length) {
+        return;
+      }
+
+      const shouldSelectAll = !checkboxes.every((checkbox) => checkbox.checked);
+      checkboxes.forEach((checkbox) => {
+        checkbox.checked = shouldSelectAll;
+      });
+    });
   });
 }
 
@@ -581,62 +626,23 @@ function attachCulturePrintHandlers() {
       const passageNumber = button.getAttribute('data-passage-number') || '';
       const dateString =
         button.getAttribute('data-date') || new Date().toISOString().slice(0, 10);
-      const lines = [];
+      const parts = [];
       if (cellLine) {
-        lines.push(`Cell line: ${cellLine}`);
+        parts.push(`Cell line: ${cellLine}`);
       }
       if (dateString) {
-        lines.push(`Date: ${dateString}`);
+        parts.push(`Date: ${dateString}`);
       }
       if (passageNumber) {
         const formattedPassage = passageNumber.startsWith('P')
           ? passageNumber
           : `P${passageNumber}`;
-        lines.push(`Passage: ${formattedPassage}`);
+        parts.push(`Passage: ${formattedPassage}`);
       }
 
-      const printableText = lines.join('\n');
-      let printed = false;
-
-      try {
-        const printWindow = window.open(
-          '',
-          '_blank',
-          'noopener,noreferrer,width=480,height=600'
-        );
-        if (printWindow && printWindow.document) {
-          printed = true;
-          const doc = printWindow.document;
-          doc.open();
-          doc.write(
-            '<!doctype html><html><head><title>Culture snapshot</title>' +
-              '<meta charset="utf-8" />' +
-              '<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px;padding:24px;color:#111;}h1{font-size:20px;margin:0 0 16px;}p{margin:0 0 12px;}</style>' +
-              '</head><body></body></html>'
-          );
-          doc.close();
-
-          const heading = doc.createElement('h1');
-          heading.textContent = 'Culture snapshot';
-          doc.body.appendChild(heading);
-
-          lines.forEach((line) => {
-            const paragraph = doc.createElement('p');
-            paragraph.textContent = line;
-            doc.body.appendChild(paragraph);
-          });
-
-          setTimeout(() => {
-            printWindow.focus();
-            printWindow.print();
-          }, 150);
-        }
-      } catch (error) {
-        printed = false;
-      }
-
-      if (!printed && printableText) {
-        await copyPlainText(printableText);
+      const snapshot = parts.join(' ');
+      if (snapshot) {
+        await copyPlainText(snapshot);
       }
     });
   });
@@ -647,6 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
   attachModeSwitcher();
   attachDilutionModeSwitcher();
   attachSeedingFormHandler();
-  attachMycoTableCopyHandler();
+  attachMycoSelectAllHandlers();
+  attachMycoTableCopyHandlers();
   attachCulturePrintHandlers();
 });

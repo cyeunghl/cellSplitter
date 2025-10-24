@@ -81,6 +81,13 @@
           <div class="card-actions">
             <button
               type="button"
+              class="button ghost copy-myco-select-all"
+              data-table-id="myco-label-table"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
               class="button secondary copy-myco-table"
               data-table-id="myco-label-table"
             >
@@ -92,6 +99,7 @@
           <table class="table label-table" id="myco-label-table">
             <thead>
               <tr>
+                <th scope="col" class="select-col" aria-label="Select label"></th>
                 <th scope="col">Label text</th>
                 <th scope="col">Culture</th>
               </tr>
@@ -100,6 +108,14 @@
               {% for culture in active_cultures %}
                 {% set label_text = today.strftime('%Y-%m-%d') ~ ' ' ~ culture.name ~ ' CY' %}
                 <tr>
+                  <td class="select-cell">
+                    <input
+                      type="checkbox"
+                      class="label-select"
+                      name="myco-select-{{ loop.index }}"
+                      aria-label="Select label for {{ culture.name }}"
+                    />
+                  </td>
                   <td class="wrap">
                     <pre class="label-snippet">{{ label_text }}</pre>
                   </td>
