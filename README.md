@@ -8,7 +8,7 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 
 - 📓 **Culture journal** – Record each passage with media, cell concentrations, doubling
   times, and notes.
-- 🔁 **Auto-numbered passages** – Choose the starting passage (defaults to P1) and let the
+- 🔁 **Auto-numbered passages** – Choose the starting passage (default = P1) and let the
   app increment numbers automatically (P1, P2, …).
 - 🧪 **Media reuse** – Pull forward the previous passage's media with a single checkbox.
 - 📈 **Seeding planner** – Calculate required cell numbers and seeding volumes based on
@@ -16,12 +16,11 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
   reach a specific concentration and total volume, then push the plan directly into the
   passage log.
 - 📊 **Harvest tracking** – Record measured harvest concentrations and volumes so the
-  seeding planner and passage form always start with the latest suspension data.
+  seeding planner and passage form always start with the latest data.
 - 📁 **Archive cultures** – Mark cultures as ended to move them into an archived list
   while preserving full passage history, or permanently delete ended cultures when
   they are no longer needed.
-- ✏️ **Edit or remove passages** – Correct typos or delete errant entries without touching
-  the surrounding history.
+- ✏️ **Edit or remove passages** – Correct typos or delete errant entries.
 - 🧬 **Doubling-time library** – Preloaded database of common cell lines with editable
   doubling-time ranges and references.
 - 🧮 **Tissue culture vessel data** – Uses surface areas and cell capacities curated from
@@ -29,7 +28,7 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 - 🏷️ **One-click labels** – Generate printer-friendly label text from the seeding planner
   and copy it straight to the clipboard.
 - 🧾 **Myco label run** – Grab a dashboard table of today’s labels for every active
-  culture—preformatted with the date and CY initials for quick mycoplasma testing.
+  culture—preformatted with the date and initials for quick mycoplasma testing.
 - 📤 **CSV export** – Download an overview of all active cultures—including the most
   recent passage details—for external reporting.
 
