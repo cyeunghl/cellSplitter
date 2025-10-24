@@ -88,7 +88,7 @@
                         type="button"
                         class="button ghost small"
                         data-print-culture
-                        data-cell-line="{{ culture.cell_line.name }}"
+                        data-culture-name="{{ culture.name }}"
                         data-passage-number="{{ passage.passage_number }}"
                         data-date="{{ passage.date.strftime('%Y-%m-%d') }}"
                         data-seeded="{{ passage.seeded_cells | format_cells if passage.seeded_cells is not none else '' }}"

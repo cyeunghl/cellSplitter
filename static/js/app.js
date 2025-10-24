@@ -638,15 +638,15 @@ function attachCulturePrintHandlers() {
 
   buttons.forEach((button) => {
     button.addEventListener('click', async () => {
-      const cellLine = button.getAttribute('data-cell-line') || '';
+      const cultureName = button.getAttribute('data-culture-name') || '';
       const passageNumber = button.getAttribute('data-passage-number') || '';
       const dateString =
         button.getAttribute('data-date') || new Date().toISOString().slice(0, 10);
       const seededCells = button.getAttribute('data-seeded') || '';
       const media = button.getAttribute('data-media') || '';
       const parts = [];
-      if (cellLine) {
-        parts.push(cellLine);
+      if (cultureName) {
+        parts.push(cultureName);
       }
       if (dateString) {
         parts.push(dateString);
@@ -672,6 +672,7 @@ function attachCulturePrintHandlers() {
   });
 }
 
+
 function initBulkProcessing() {
   const bulkCard = document.querySelector('[data-bulk-card]');
   if (!bulkCard) {
@@ -690,7 +691,7 @@ function initBulkProcessing() {
     }
     const id = Number.parseInt(entry.id, 10);
     if (!Number.isNaN(id)) {
-      cultureMap.set(id, entry);
+      cultureMap.set(id, { ...entry, id });
     }
   });
 
@@ -698,23 +699,49 @@ function initBulkProcessing() {
     return;
   }
 
+  const vesselDataRaw = parseJSONScript('bulk-vessel-data');
+  const vessels = Array.isArray(vesselDataRaw)
+    ? vesselDataRaw
+        .map((entry) => {
+          if (!entry || entry.id === undefined || entry.id === null) {
+            return null;
+          }
+          const id = Number.parseInt(entry.id, 10);
+          if (Number.isNaN(id)) {
+            return null;
+          }
+          return {
+            id,
+            name: entry.name || `Vessel ${id}`,
+            area_cm2: entry.area_cm2,
+            cells_at_100_confluency: entry.cells_at_100_confluency,
+          };
+        })
+        .filter(Boolean)
+    : [];
+
   const today = bulkCard.dataset.today || new Date().toISOString().slice(0, 10);
   const selectAllButton = bulkCard.querySelector('[data-bulk-select-all]');
   const copyButton = bulkCard.querySelector('[data-bulk-generate-copy]');
-  const prepareButton = bulkCard.querySelector('[data-bulk-prepare-passages]');
+  const startButton = bulkCard.querySelector('[data-bulk-start]');
   const labelsButton = bulkCard.querySelector('[data-bulk-copy-labels]');
   const copyOutput = bulkCard.querySelector('#bulk-copy-output');
-  const labelOutput = bulkCard.querySelector('#bulk-label-output');
-  const form = bulkCard.querySelector('[data-bulk-form]');
+  const workflow = bulkCard.querySelector('[data-bulk-workflow]');
+  const harvestForm = bulkCard.querySelector('[data-bulk-harvest-form]');
+  const harvestBody = harvestForm ? harvestForm.querySelector('tbody') : null;
+  const plannerForm = bulkCard.querySelector('[data-bulk-planner-form]');
+  const plannerBody = plannerForm ? plannerForm.querySelector('tbody') : null;
+  const harvestTab = bulkCard.querySelector('[data-bulk-tab="harvest"]');
+  const plannerTab = bulkCard.querySelector('[data-bulk-tab="planner"]');
   const statusNode = bulkCard.querySelector('[data-bulk-status]');
-  const rows = form ? Array.from(form.querySelectorAll('tr[data-bulk-row]')) : [];
-  const rowsById = new Map();
-  rows.forEach((row) => {
-    const id = Number.parseInt(row.dataset.cultureId, 10);
-    if (!Number.isNaN(id)) {
-      rowsById.set(id, row);
-    }
-  });
+  const harvestStatus = bulkCard.querySelector('[data-harvest-status]');
+  const plannerStatus = bulkCard.querySelector('[data-planner-status]');
+  const labelOutput = bulkCard.querySelector('#bulk-label-output');
+
+  const harvestRowsById = new Map();
+  const plannerRowsById = new Map();
+  let activeIds = [];
+  let harvestSaved = false;
 
   const clearElement = (node) => {
     if (node) {
@@ -722,12 +749,18 @@ function initBulkProcessing() {
     }
   };
 
-  const showStatus = (message, type = 'info') => {
-    if (!statusNode) {
+  const showStatus = (node, message, type = 'info') => {
+    if (!node) {
       return;
     }
-    statusNode.textContent = message || '';
-    statusNode.classList.toggle('error', type === 'error');
+    node.textContent = message || '';
+    node.classList.toggle('error', type === 'error');
+  };
+
+  const resetStatuses = () => {
+    showStatus(statusNode, '');
+    showStatus(harvestStatus, '');
+    showStatus(plannerStatus, '');
   };
 
   const getSelectedIds = () => {
@@ -742,23 +775,465 @@ function initBulkProcessing() {
     return ids;
   };
 
-  const buildSnapshot = (options) => {
+  const populateVesselOptions = (select, selectedId) => {
+    if (!select) {
+      return;
+    }
+    select.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select vessel…';
+    select.appendChild(placeholder);
+    vessels.forEach((vessel) => {
+      const option = document.createElement('option');
+      option.value = String(vessel.id);
+      option.textContent = vessel.name;
+      if (selectedId && Number.parseInt(selectedId, 10) === vessel.id) {
+        option.selected = true;
+      }
+      select.appendChild(option);
+    });
+  };
+
+  const defaultConcentration = (culture) => {
+    if (!culture) {
+      return '';
+    }
+    if (culture.measured_cell_concentration != null) {
+      return culture.measured_cell_concentration;
+    }
+    if (culture.default_cell_concentration != null) {
+      return culture.default_cell_concentration;
+    }
+    return 1000000;
+  };
+
+  const defaultSlurryVolume = (culture) => {
+    if (!culture) {
+      return '';
+    }
+    if (culture.measured_slurry_volume_ml != null) {
+      return culture.measured_slurry_volume_ml;
+    }
+    if (culture.default_slurry_volume_ml != null) {
+      return culture.default_slurry_volume_ml;
+    }
+    return '';
+  };
+
+  const setActiveTab = (tab) => {
+    if (!workflow) {
+      return;
+    }
+    const harvestActive = tab === 'harvest';
+    const plannerActive = tab === 'planner';
+    if (harvestTab) {
+      harvestTab.classList.toggle('is-active', harvestActive);
+      harvestTab.setAttribute('aria-selected', harvestActive ? 'true' : 'false');
+    }
+    if (plannerTab) {
+      plannerTab.classList.toggle('is-active', plannerActive);
+      plannerTab.setAttribute('aria-selected', plannerActive ? 'true' : 'false');
+    }
+    if (harvestForm) {
+      harvestForm.hidden = !harvestActive;
+    }
+    if (plannerForm) {
+      plannerForm.hidden = !plannerActive;
+    }
+  };
+
+  const ensureWorkflowVisible = (ids) => {
+    if (!workflow) {
+      return;
+    }
+    workflow.hidden = !ids.length;
+    if (!ids.length) {
+      harvestSaved = false;
+    }
+    if (plannerTab) {
+      plannerTab.disabled = !harvestSaved;
+    }
+    if (!workflow.hidden) {
+      setActiveTab(harvestSaved ? 'planner' : 'harvest');
+    }
+  };
+
+  const renderHarvestRows = (ids) => {
+    if (!harvestBody) {
+      return;
+    }
+    harvestBody.innerHTML = '';
+    harvestRowsById.clear();
+    ids.forEach((id) => {
+      const culture = cultureMap.get(id);
+      if (!culture) {
+        return;
+      }
+      const row = harvestBody.insertRow();
+      row.dataset.cultureId = String(id);
+      const cultureCell = row.insertCell();
+      const name = document.createElement('strong');
+      name.textContent = culture.name || `Culture ${id}`;
+      cultureCell.appendChild(name);
+      const next = document.createElement('p');
+      next.className = 'meta';
+      const nextPassage =
+        culture.next_passage_number != null ? culture.next_passage_number : 1;
+      next.textContent = `Next: P${nextPassage}`;
+      cultureCell.appendChild(next);
+      if (culture.latest_vessel_name) {
+        const vesselMeta = document.createElement('p');
+        vesselMeta.className = 'meta';
+        vesselMeta.textContent = `Last vessel: ${culture.latest_vessel_name}`;
+        cultureCell.appendChild(vesselMeta);
+      }
+
+      const concCell = row.insertCell();
+      const concLabel = document.createElement('label');
+      const concSpan = document.createElement('span');
+      concSpan.textContent = 'Measured concentration (cells/mL)';
+      concLabel.appendChild(concSpan);
+      const concInput = document.createElement('input');
+      concInput.type = 'text';
+      concInput.className = 'bulk-harvest-concentration';
+      const defaultConc = defaultConcentration(culture);
+      if (defaultConc !== '') {
+        concInput.value = String(defaultConc);
+      }
+      concLabel.appendChild(concInput);
+      concCell.appendChild(concLabel);
+
+      const volumeCell = row.insertCell();
+      const volumeLabel = document.createElement('label');
+      const volumeSpan = document.createElement('span');
+      volumeSpan.textContent = 'Slurry volume (mL)';
+      volumeLabel.appendChild(volumeSpan);
+      const volumeInput = document.createElement('input');
+      volumeInput.type = 'text';
+      volumeInput.className = 'bulk-harvest-volume';
+      const defaultVolume = defaultSlurryVolume(culture);
+      if (defaultVolume !== '') {
+        volumeInput.value = String(defaultVolume);
+      }
+      volumeLabel.appendChild(volumeInput);
+      volumeCell.appendChild(volumeLabel);
+      if (
+        culture.default_slurry_volume_ml != null &&
+        culture.measured_slurry_volume_ml == null
+      ) {
+        const hint = document.createElement('p');
+        hint.className = 'form-hint';
+        hint.textContent = `Suggested: ${culture.default_slurry_volume_ml} mL`;
+        volumeCell.appendChild(hint);
+      }
+      harvestRowsById.set(id, row);
+    });
+  };
+
+  const updateModeSections = (row) => {
+    if (!row) {
+      return;
+    }
+    const modeSelect = row.querySelector('.bulk-mode');
+    const mode = modeSelect ? modeSelect.value : MODE_CONFLUENCY;
+    row.dataset.mode = mode;
+    const sections = row.querySelectorAll('[data-bulk-mode-section]');
+    sections.forEach((section) => {
+      section.hidden = section.dataset.bulkModeSection !== mode;
+    });
+  };
+
+  const updateDilutionSections = (row) => {
+    if (!row) {
+      return;
+    }
+    const mode = row.dataset.dilutionMode || 'concentration';
+    const sections = row.querySelectorAll('[data-bulk-dilution-section]');
+    sections.forEach((section) => {
+      section.hidden = section.dataset.bulkDilutionSection !== mode;
+    });
+  };
+
+  const appendNoteSuggestion = (notesField, suggestion) => {
+    if (!notesField || !suggestion) {
+      return;
+    }
+    const existing = notesField.value || '';
+    if (existing.includes(suggestion)) {
+      return;
+    }
+    notesField.value = existing ? `${existing}
+${suggestion}` : suggestion;
+  };
+
+  const renderPlannerRows = (ids) => {
+    if (!plannerBody) {
+      return;
+    }
+    plannerBody.innerHTML = '';
+    plannerRowsById.clear();
+    ids.forEach((id) => {
+      const culture = cultureMap.get(id);
+      if (!culture) {
+        return;
+      }
+      const row = plannerBody.insertRow();
+      row.dataset.cultureId = String(id);
+      row.dataset.nextPassage =
+        culture.next_passage_number != null ? culture.next_passage_number : 1;
+      row.dataset.dilutionMode = 'concentration';
+      row.dataset.mode = MODE_CONFLUENCY;
+
+      const cultureCell = row.insertCell();
+      const strong = document.createElement('strong');
+      strong.textContent = culture.name || `Culture ${id}`;
+      cultureCell.appendChild(strong);
+      const meta = document.createElement('p');
+      meta.className = 'meta';
+      meta.textContent = `Next: P${row.dataset.nextPassage}`;
+      cultureCell.appendChild(meta);
+      if (
+        culture.measured_cell_concentration != null &&
+        culture.measured_slurry_volume_ml != null
+      ) {
+        const measurementMeta = document.createElement('p');
+        measurementMeta.className = 'meta';
+        const totalCells =
+          culture.measured_cell_concentration * culture.measured_slurry_volume_ml;
+        measurementMeta.textContent = `Harvest: ${formatCells(totalCells)} cells`;
+        cultureCell.appendChild(measurementMeta);
+      }
+
+      const plannerCell = row.insertCell();
+      plannerCell.className = 'bulk-cell';
+      plannerCell.innerHTML = `
+        <div class="field-stack">
+          <label>
+            <span>Planner mode</span>
+            <select class="bulk-mode">
+              <option value="confluency">Target confluency</option>
+              <option value="dilution">Concentration to dilute</option>
+            </select>
+          </label>
+          <div class="bulk-mode-section" data-bulk-mode-section="confluency">
+            <label>
+              <span>Vessel</span>
+              <select class="bulk-vessel"></select>
+            </label>
+            <label>
+              <span>Target confluency (%)</span>
+              <input type="text" class="bulk-target-confluency" />
+            </label>
+            <label>
+              <span>Days until split</span>
+              <input type="text" class="bulk-hours" />
+            </label>
+            <label>
+              <span>Vessels used</span>
+              <input type="number" min="1" step="1" class="bulk-vessels-used" />
+            </label>
+            <label>
+              <span>Doubling time override (h)</span>
+              <input type="text" class="bulk-doubling-override" />
+            </label>
+          </div>
+          <div class="bulk-mode-section" data-bulk-mode-section="dilution" hidden>
+            <div class="bulk-dilution-toggle">
+              <label class="radio">
+                <input type="radio" value="concentration" data-bulk-dilution-mode checked />
+                <span>Final concentration</span>
+              </label>
+              <label class="radio">
+                <input type="radio" value="cells" data-bulk-dilution-mode />
+                <span>Cells per portion</span>
+              </label>
+            </div>
+            <div class="bulk-dilution-section" data-bulk-dilution-section="concentration">
+              <label>
+                <span>Final concentration (cells/mL)</span>
+                <input type="text" class="bulk-final-concentration" />
+              </label>
+            </div>
+            <div class="bulk-dilution-section" data-bulk-dilution-section="cells" hidden>
+              <label>
+                <span>Cells to seed (cells)</span>
+                <input type="text" class="bulk-cells-to-seed" />
+              </label>
+              <label>
+                <span>Volume per portion (mL)</span>
+                <input type="text" class="bulk-volume-per-seed" />
+              </label>
+            </div>
+            <label>
+              <span>Total volume (mL)</span>
+              <input type="text" class="bulk-total-volume" />
+            </label>
+          </div>
+          <label>
+            <span>Starting concentration (cells/mL)</span>
+            <input type="text" class="bulk-cell-concentration" />
+          </label>
+          <div class="form-actions inline">
+            <button type="button" class="button secondary small bulk-calc">Calculate</button>
+          </div>
+          <div class="bulk-result" data-bulk-result>
+            Enter planner inputs and calculate to preview guidance.
+          </div>
+        </div>
+      `;
+
+      const passageCell = row.insertCell();
+      passageCell.className = 'bulk-cell';
+      passageCell.innerHTML = `
+        <div class="field-stack">
+          <label>
+            <span>Date</span>
+            <input type="date" class="bulk-date" />
+          </label>
+          <label>
+            <span>Media</span>
+            <textarea class="bulk-media" rows="2"></textarea>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" class="bulk-use-previous" />
+            <span>Use previous media</span>
+          </label>
+          <label>
+            <span>Cells seeded (cells)</span>
+            <input type="text" class="bulk-seeded" />
+          </label>
+          <label>
+            <span>Doubling time (h)</span>
+            <input type="text" class="bulk-doubling" />
+          </label>
+          <label>
+            <span>Notes</span>
+            <textarea class="bulk-notes" rows="2"></textarea>
+          </label>
+        </div>
+      `;
+
+      const modeSelect = row.querySelector('.bulk-mode');
+      if (modeSelect) {
+        modeSelect.value = MODE_CONFLUENCY;
+      }
+      const vesselSelect = row.querySelector('.bulk-vessel');
+      populateVesselOptions(vesselSelect, culture.default_vessel_id);
+      const targetInput = row.querySelector('.bulk-target-confluency');
+      if (targetInput) {
+        targetInput.value = '80';
+      }
+      const hoursInput = row.querySelector('.bulk-hours');
+      if (hoursInput) {
+        hoursInput.value = '3';
+      }
+      const vesselsUsedInput = row.querySelector('.bulk-vessels-used');
+      if (vesselsUsedInput) {
+        const vesselsValue =
+          culture.latest_vessels_used != null && culture.latest_vessels_used > 0
+            ? culture.latest_vessels_used
+            : 1;
+        vesselsUsedInput.value = String(vesselsValue);
+      }
+      const overrideInput = row.querySelector('.bulk-doubling-override');
+      if (overrideInput && culture.default_doubling_time != null) {
+        overrideInput.placeholder = `${culture.default_doubling_time}`;
+      }
+      const finalConcentrationInput = row.querySelector('.bulk-final-concentration');
+      if (finalConcentrationInput) {
+        finalConcentrationInput.value = '5e5';
+      }
+      const totalVolumeInput = row.querySelector('.bulk-total-volume');
+      if (totalVolumeInput) {
+        totalVolumeInput.value = '20';
+      }
+      const startConcInput = row.querySelector('.bulk-cell-concentration');
+      if (startConcInput) {
+        const startValue = defaultConcentration(culture);
+        if (startValue !== '') {
+          startConcInput.value = String(startValue);
+        }
+      }
+      const dilutionRadios = row.querySelectorAll('input[data-bulk-dilution-mode]');
+      dilutionRadios.forEach((radio) => {
+        radio.name = `bulk-dilution-mode-${id}`;
+      });
+
+      const dateInput = row.querySelector('.bulk-date');
+      if (dateInput) {
+        dateInput.value = today;
+      }
+      const mediaField = row.querySelector('.bulk-media');
+      if (mediaField) {
+        mediaField.value = culture.latest_media || '';
+      }
+      const mediaCheckbox = row.querySelector('.bulk-use-previous');
+      if (mediaCheckbox) {
+        mediaCheckbox.dataset.media = culture.latest_media || '';
+      }
+      const seededInput = row.querySelector('.bulk-seeded');
+      if (seededInput && culture.latest_seeded_cells != null) {
+        seededInput.value = String(culture.latest_seeded_cells);
+      }
+      const doublingField = row.querySelector('.bulk-doubling');
+      if (doublingField && culture.default_doubling_time != null) {
+        doublingField.value = String(culture.default_doubling_time);
+      }
+
+      updateModeSections(row);
+      updateDilutionSections(row);
+
+      if (modeSelect) {
+        modeSelect.addEventListener('change', () => {
+          updateModeSections(row);
+        });
+      }
+      dilutionRadios.forEach((radio) => {
+        radio.addEventListener('change', () => {
+          row.dataset.dilutionMode = radio.value;
+          updateDilutionSections(row);
+        });
+      });
+      if (mediaCheckbox && mediaField) {
+        mediaCheckbox.addEventListener('change', () => {
+          if (mediaCheckbox.checked) {
+            mediaField.value = mediaCheckbox.dataset.media || '';
+          }
+        });
+      }
+      const calcButton = row.querySelector('.bulk-calc');
+      if (calcButton) {
+        calcButton.addEventListener('click', () => {
+          calculateSeedingForRow(row, id);
+        });
+      }
+
+      plannerRowsById.set(id, row);
+    });
+  };
+
+  const buildSnapshot = (culture) => {
+    if (!culture) {
+      return '';
+    }
     const parts = [];
-    if (options.cellLine) {
-      parts.push(options.cellLine);
+    if (culture.name) {
+      parts.push(culture.name);
     }
-    if (options.date) {
-      parts.push(options.date);
+    const snapshotDate = culture.latest_passage_date || today;
+    if (snapshotDate) {
+      parts.push(snapshotDate);
     }
-    if (options.passage) {
-      const passageString = String(options.passage);
+    if (culture.latest_passage_number != null) {
+      const passageString = String(culture.latest_passage_number);
       parts.push(passageString.startsWith('P') ? passageString : `P${passageString}`);
     }
-    if (options.seeded && options.seeded !== '—') {
-      parts.push(`${options.seeded} cells`);
+    if (culture.latest_seeded_display) {
+      parts.push(`${culture.latest_seeded_display} cells`);
     }
-    if (options.media) {
-      parts.push(options.media);
+    if (culture.latest_media) {
+      parts.push(culture.latest_media);
     }
     return parts.join(' · ');
   };
@@ -791,20 +1266,14 @@ function initBulkProcessing() {
       if (!culture) {
         return;
       }
-      const snapshot = buildSnapshot({
-        cellLine: culture.cell_line,
-        date: culture.latest_passage_date || today,
-        passage: culture.latest_passage_number,
-        seeded: culture.latest_seeded_display,
-        media: culture.latest_media,
-      });
+      const snapshot = buildSnapshot(culture);
       if (!snapshot) {
         return;
       }
       lines.push(snapshot);
       const row = tbody.insertRow();
       const cultureCell = row.insertCell();
-      cultureCell.textContent = culture.name || culture.cell_line || '';
+      cultureCell.textContent = culture.name || `Culture ${id}`;
       const textCell = row.insertCell();
       const pre = document.createElement('pre');
       pre.className = 'label-snippet';
@@ -824,289 +1293,22 @@ function initBulkProcessing() {
 
     if (!lines.length) {
       copyOutput.innerHTML =
-        '<p class="form-hint">No copy text is available yet for the selected cultures.</p>';
+        '<p class="form-hint">Add passage details to generate copy text.</p>';
       copyOutput.hidden = false;
       return;
     }
 
     tableWrapper.appendChild(table);
     copyOutput.appendChild(tableWrapper);
-
-    if (lines.length) {
-      const copyAllButton = document.createElement('button');
-      copyAllButton.type = 'button';
-      copyAllButton.className = 'button secondary';
-      copyAllButton.textContent = 'Copy all';
-      copyAllButton.addEventListener('click', () => {
-        copyPlainText(lines.join('\n'));
-      });
-      copyOutput.appendChild(copyAllButton);
-    }
-
+    const copyAllButton = document.createElement('button');
+    copyAllButton.type = 'button';
+    copyAllButton.className = 'button secondary';
+    copyAllButton.textContent = 'Copy all';
+    copyAllButton.addEventListener('click', () => {
+      copyPlainText(lines.join('\n\n'));
+    });
+    copyOutput.appendChild(copyAllButton);
     copyOutput.hidden = false;
-  };
-
-  const updateModeSections = (row) => {
-    const modeSelect = row.querySelector('.bulk-mode');
-    const mode = modeSelect ? modeSelect.value : 'confluency';
-    row.dataset.mode = mode;
-    const sections = row.querySelectorAll('.bulk-mode-section');
-    sections.forEach((section) => {
-      const active = section.dataset.bulkModeSection === mode;
-      section.hidden = !active;
-      const inputs = section.querySelectorAll('input, select, textarea');
-      inputs.forEach((input) => {
-        input.disabled = !active;
-      });
-    });
-  };
-
-  const updateDilutionSections = (row) => {
-    const radios = row.querySelectorAll('input[data-bulk-dilution-mode]');
-    let mode = 'concentration';
-    radios.forEach((radio) => {
-      if (radio.checked) {
-        mode = radio.value;
-      }
-    });
-    row.dataset.dilutionMode = mode;
-    const sections = row.querySelectorAll('[data-bulk-dilution-section]');
-    sections.forEach((section) => {
-      const active = section.dataset.bulkDilutionSection === mode;
-      section.hidden = !active;
-      const inputs = section.querySelectorAll('input, select, textarea');
-      inputs.forEach((input) => {
-        input.disabled = !active;
-      });
-    });
-  };
-
-  const appendNoteSuggestion = (notesField, suggestion) => {
-    if (!notesField || !suggestion) {
-      return;
-    }
-    const existingGenerated = notesField.dataset.generatedNote || '';
-    if (!notesField.value || notesField.value === existingGenerated) {
-      notesField.value = suggestion;
-      notesField.dataset.generatedNote = suggestion;
-    } else if (!notesField.value.includes(suggestion)) {
-      notesField.value = `${notesField.value}\n\n${suggestion}`;
-      notesField.dataset.generatedNote = suggestion;
-    }
-  };
-
-  const calculateSeedingForRow = async (row, cultureId) => {
-    const culture = cultureMap.get(cultureId);
-    if (!culture) {
-      return;
-    }
-    const resultContainer = row.querySelector('[data-bulk-result]');
-    if (resultContainer) {
-      resultContainer.textContent = 'Calculating…';
-    }
-
-    const modeSelect = row.querySelector('.bulk-mode');
-    const mode = modeSelect ? modeSelect.value : 'confluency';
-    const cellConcentrationInput = row.querySelector('.bulk-cell-concentration');
-    const cellConcentration = cellConcentrationInput
-      ? cellConcentrationInput.value.trim()
-      : '';
-    if (!cellConcentration) {
-      if (resultContainer) {
-        resultContainer.innerHTML =
-          '<p class="error">Enter the starting cell concentration before calculating.</p>';
-      }
-      return;
-    }
-
-    const payload = {
-      culture_id: cultureId,
-      mode,
-      cell_concentration: cellConcentration,
-    };
-
-    if (mode === MODE_CONFLUENCY) {
-      const vesselSelect = row.querySelector('.bulk-vessel');
-      const targetConfluencyInput = row.querySelector('.bulk-target-confluency');
-      const hoursInput = row.querySelector('.bulk-hours');
-      const vesselsUsedInput = row.querySelector('.bulk-vessels-used');
-      const doublingInput = row.querySelector('.bulk-doubling-override');
-
-      if (!vesselSelect || !vesselSelect.value) {
-        if (resultContainer) {
-          resultContainer.innerHTML =
-            '<p class="error">Select a vessel before calculating the seeding plan.</p>';
-        }
-        return;
-      }
-
-      payload.vessel_id = Number.parseInt(vesselSelect.value, 10);
-      payload.target_confluency = targetConfluencyInput
-        ? targetConfluencyInput.value
-        : '';
-      payload.target_hours = hoursInput ? hoursInput.value : '';
-      payload.vessels_used = vesselsUsedInput ? vesselsUsedInput.value : '';
-      if (doublingInput && doublingInput.value) {
-        payload.doubling_time_override = doublingInput.value;
-      }
-    } else {
-      const dilutionMode = row.dataset.dilutionMode || 'concentration';
-      payload.dilution_input_mode = dilutionMode;
-      const totalVolumeInput = row.querySelector('.bulk-total-volume');
-      payload.total_volume_ml = totalVolumeInput ? totalVolumeInput.value : '';
-      if (dilutionMode === 'cells') {
-        payload.cells_to_seed = row.querySelector('.bulk-cells-to-seed')?.value || '';
-        payload.volume_per_seed_ml =
-          row.querySelector('.bulk-volume-per-seed')?.value || '';
-      } else {
-        payload.final_concentration =
-          row.querySelector('.bulk-final-concentration')?.value || '';
-      }
-    }
-
-    try {
-      const response = await fetch('/api/calc-seeding', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        if (resultContainer) {
-          resultContainer.innerHTML = `<p class="error">${
-            data.error || 'Calculation failed.'
-          }</p>`;
-        }
-        return;
-      }
-
-      if (resultContainer) {
-        resultContainer.innerHTML = buildSeedingSummary(data);
-      }
-
-      const seededInput = row.querySelector('.bulk-seeded');
-      if (seededInput) {
-        if (data.mode === MODE_DILUTION) {
-          seededInput.value = data.cells_needed ?? '';
-        } else {
-          seededInput.value = data.required_cells_total ?? '';
-        }
-      }
-
-      const vesselSelect = row.querySelector('.bulk-vessel');
-      if (vesselSelect && data.vessel_id) {
-        vesselSelect.value = data.vessel_id;
-      }
-
-      const vesselsUsedInput = row.querySelector('.bulk-vessels-used');
-      if (vesselsUsedInput && data.vessels_used !== undefined) {
-        vesselsUsedInput.value = data.vessels_used ?? '';
-      }
-
-      const notesField = row.querySelector('.bulk-notes');
-      appendNoteSuggestion(notesField, data.note_suggestion);
-
-      const labelCells =
-        data.mode === MODE_DILUTION
-          ? data.cells_needed
-          : data.required_cells_total;
-      if (labelCells !== undefined) {
-        row.dataset.calculatedSeeded = labelCells;
-        row.dataset.calculatedSeededDisplay =
-          data.mode === MODE_DILUTION
-            ? data.cells_needed_formatted || formatCells(labelCells)
-            : data.required_cells_total_formatted || formatCells(labelCells);
-      }
-
-      row.dataset.lastCalculation = JSON.stringify(data);
-    } catch (error) {
-      if (resultContainer) {
-        resultContainer.innerHTML = `<p class="error">${error.message}</p>`;
-      }
-    }
-  };
-
-  const toggleRows = (ids) => {
-    if (!form) {
-      return;
-    }
-    rows.forEach((row) => {
-      const id = Number.parseInt(row.dataset.cultureId, 10);
-      row.hidden = !ids.includes(id);
-    });
-    form.hidden = !ids.length;
-  };
-
-  const gatherEntries = (ids) => {
-    return ids
-      .map((id) => {
-        const row = rowsById.get(id);
-        if (!row || row.hidden) {
-          return null;
-        }
-        const readValue = (selector) => {
-          const element = row.querySelector(selector);
-          if (!element) {
-            return '';
-          }
-          if (element.type === 'checkbox') {
-            return element.checked ? '1' : '';
-          }
-          return element.value || '';
-        };
-        return {
-          culture_id: id,
-          measured_cell_concentration: readValue('.bulk-measured-concentration'),
-          measured_slurry_volume_ml: readValue('.bulk-measured-volume'),
-          measured_yield_millions: readValue('.bulk-measured-yield'),
-          cell_concentration: readValue('.bulk-cell-concentration'),
-          vessel_id: readValue('.bulk-vessel'),
-          vessels_used: readValue('.bulk-vessels-used'),
-          seeded_cells: readValue('.bulk-seeded'),
-          media: readValue('.bulk-media'),
-          doubling_time_hours: readValue('.bulk-doubling'),
-          notes: readValue('.bulk-notes'),
-          date: readValue('.bulk-date'),
-          use_previous_media: readValue('.bulk-use-previous') ? 1 : '',
-        };
-      })
-      .filter((entry) => entry !== null);
-  };
-
-  const updateRowsFromResponse = (records) => {
-    if (!Array.isArray(records)) {
-      return;
-    }
-    records.forEach((record) => {
-      const cultureId = Number.parseInt(record.culture_id, 10);
-      if (Number.isNaN(cultureId)) {
-        return;
-      }
-      const row = rowsById.get(cultureId);
-      if (row) {
-        row.dataset.savedPassageNumber = record.passage_number;
-        row.dataset.savedDate = record.date;
-        if (record.seeded_cells !== undefined && record.seeded_cells !== null) {
-          row.dataset.savedSeeded = record.seeded_cells;
-          row.dataset.savedSeededDisplay =
-            record.seeded_cells_formatted || formatCells(record.seeded_cells);
-        }
-        row.dataset.nextPassage = record.passage_number + 1;
-      }
-      const culture = cultureMap.get(cultureId);
-      if (culture) {
-        culture.latest_passage_number = record.passage_number;
-        culture.latest_passage_date = record.date;
-        culture.latest_media = record.media || '';
-        culture.latest_seeded_cells = record.seeded_cells ?? null;
-        culture.latest_seeded_display =
-          record.seeded_cells_formatted ||
-          (record.seeded_cells !== undefined && record.seeded_cells !== null
-            ? formatCells(record.seeded_cells)
-            : culture.latest_seeded_display);
-        culture.next_passage_number = record.passage_number + 1;
-      }
-    });
   };
 
   const buildLabelText = (cultureId) => {
@@ -1114,9 +1316,9 @@ function initBulkProcessing() {
     if (!culture) {
       return '';
     }
-    const row = rowsById.get(cultureId);
+    const row = plannerRowsById.get(cultureId);
     const lines = [];
-    lines.push(`Culture: ${culture.name}`);
+    lines.push(`Culture: ${culture.name || `Culture ${cultureId}`}`);
     let labelDate = today;
     if (row) {
       labelDate =
@@ -1129,10 +1331,10 @@ function initBulkProcessing() {
     let passageNumber = culture.next_passage_number;
     if (row && row.dataset.savedPassageNumber) {
       passageNumber = row.dataset.savedPassageNumber;
-    } else if (culture.latest_passage_number) {
+    } else if (culture.latest_passage_number != null) {
       passageNumber = culture.latest_passage_number;
     }
-    if (passageNumber !== undefined && passageNumber !== null) {
+    if (passageNumber != null) {
       const normalized = String(passageNumber).startsWith('P')
         ? String(passageNumber)
         : `P${passageNumber}`;
@@ -1155,13 +1357,14 @@ function initBulkProcessing() {
           cellsDisplay = seededValue;
         }
       }
-    } else if (culture.latest_seeded_cells) {
+    } else if (culture.latest_seeded_cells != null) {
       cellsDisplay = formatCellsForLabel(culture.latest_seeded_cells);
     } else if (culture.latest_seeded_display) {
       cellsDisplay = culture.latest_seeded_display;
     }
     lines.push(`Cells seeded: ${cellsDisplay}`);
-    return lines.join('\n');
+    return lines.join('
+');
   };
 
   const renderLabelTable = (ids) => {
@@ -1223,55 +1426,294 @@ function initBulkProcessing() {
 
     tableWrapper.appendChild(table);
     labelOutput.appendChild(tableWrapper);
-
-    if (lines.length) {
-      const copyAllButton = document.createElement('button');
-      copyAllButton.type = 'button';
-      copyAllButton.className = 'button secondary';
-      copyAllButton.textContent = 'Copy all labels';
-      copyAllButton.addEventListener('click', () => {
-        copyPlainText(lines.join('\n\n'));
-      });
-      labelOutput.appendChild(copyAllButton);
-    }
-
+    const copyAllButton = document.createElement('button');
+    copyAllButton.type = 'button';
+    copyAllButton.className = 'button secondary';
+    copyAllButton.textContent = 'Copy all labels';
+    copyAllButton.addEventListener('click', () => {
+      copyPlainText(lines.join('\n\n'));
+    });
+    labelOutput.appendChild(copyAllButton);
     labelOutput.hidden = false;
   };
 
-  rows.forEach((row) => {
-    updateModeSections(row);
-    updateDilutionSections(row);
+  const calculateSeedingForRow = async (row, cultureId) => {
+    if (!row) {
+      return;
+    }
+    const resultContainer = row.querySelector('[data-bulk-result]');
+    if (resultContainer) {
+      resultContainer.textContent = 'Calculating…';
+    }
     const modeSelect = row.querySelector('.bulk-mode');
-    if (modeSelect) {
-      modeSelect.addEventListener('change', () => {
-        updateModeSections(row);
-      });
+    const mode = modeSelect ? modeSelect.value : MODE_CONFLUENCY;
+    row.dataset.mode = mode;
+    const cellConcentration = row.querySelector('.bulk-cell-concentration')?.value || '';
+    if (!cellConcentration.trim()) {
+      if (resultContainer) {
+        resultContainer.innerHTML =
+          '<p class="error">Enter the starting cell concentration before calculating.</p>';
+      }
+      return;
     }
-    const dilutionRadios = row.querySelectorAll('input[data-bulk-dilution-mode]');
-    dilutionRadios.forEach((radio) => {
-      radio.addEventListener('change', () => {
-        updateDilutionSections(row);
+
+    const payload = {
+      culture_id: cultureId,
+      mode,
+      cell_concentration: cellConcentration,
+    };
+
+    if (mode === MODE_CONFLUENCY) {
+      const vesselSelect = row.querySelector('.bulk-vessel');
+      if (!vesselSelect || !vesselSelect.value) {
+        if (resultContainer) {
+          resultContainer.innerHTML =
+            '<p class="error">Select a vessel before calculating the seeding plan.</p>';
+        }
+        return;
+      }
+      payload.vessel_id = Number.parseInt(vesselSelect.value, 10);
+      const targetConfluencyInput = row.querySelector('.bulk-target-confluency');
+      payload.target_confluency = targetConfluencyInput ? targetConfluencyInput.value : '';
+      const daysInput = row.querySelector('.bulk-hours');
+      if (daysInput && daysInput.value) {
+        const days = Number.parseFloat(daysInput.value);
+        if (Number.isFinite(days)) {
+          payload.target_hours = String(days * 24);
+        }
+      }
+      const vesselsUsedInput = row.querySelector('.bulk-vessels-used');
+      payload.vessels_used = vesselsUsedInput ? vesselsUsedInput.value : '';
+      const doublingOverride = row.querySelector('.bulk-doubling-override');
+      if (doublingOverride && doublingOverride.value) {
+        payload.doubling_time_override = doublingOverride.value;
+      }
+    } else {
+      const dilutionMode = row.dataset.dilutionMode || 'concentration';
+      payload.dilution_input_mode = dilutionMode;
+      const totalVolumeInput = row.querySelector('.bulk-total-volume');
+      payload.total_volume_ml = totalVolumeInput ? totalVolumeInput.value : '';
+      if (dilutionMode === 'cells') {
+        payload.cells_to_seed = row.querySelector('.bulk-cells-to-seed')?.value || '';
+        payload.volume_per_seed_ml =
+          row.querySelector('.bulk-volume-per-seed')?.value || '';
+      } else {
+        payload.final_concentration =
+          row.querySelector('.bulk-final-concentration')?.value || '';
+      }
+    }
+
+    try {
+      const response = await fetch('/api/calc-seeding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
+      const data = await response.json();
+      if (!response.ok) {
+        if (resultContainer) {
+          resultContainer.innerHTML = `<p class="error">${
+            data.error || 'Calculation failed.'
+          }</p>`;
+        }
+        return;
+      }
+
+      if (resultContainer) {
+        resultContainer.innerHTML = buildSeedingSummary(data);
+      }
+
+      const seededInput = row.querySelector('.bulk-seeded');
+      if (seededInput) {
+        if (data.mode === MODE_DILUTION) {
+          seededInput.value = data.cells_needed ?? '';
+        } else {
+          seededInput.value = data.required_cells_total ?? '';
+        }
+      }
+
+      const vesselSelect = row.querySelector('.bulk-vessel');
+      if (vesselSelect && data.vessel_id) {
+        vesselSelect.value = data.vessel_id;
+      }
+
+      const vesselsUsedInput = row.querySelector('.bulk-vessels-used');
+      if (vesselsUsedInput && data.vessels_used !== undefined) {
+        vesselsUsedInput.value = data.vessels_used ?? '';
+      }
+
+      const notesField = row.querySelector('.bulk-notes');
+      appendNoteSuggestion(notesField, data.note_suggestion);
+
+      const labelCells =
+        data.mode === MODE_DILUTION ? data.cells_needed : data.required_cells_total;
+      if (labelCells !== undefined) {
+        row.dataset.calculatedSeeded = labelCells;
+        row.dataset.calculatedSeededDisplay =
+          data.mode === MODE_DILUTION
+            ? data.cells_needed_formatted || formatCells(labelCells)
+            : data.required_cells_total_formatted || formatCells(labelCells);
+      }
+
+      row.dataset.lastCalculation = JSON.stringify(data);
+    } catch (error) {
+      if (resultContainer) {
+        resultContainer.innerHTML = `<p class="error">${error.message}</p>`;
+      }
+    }
+  };
+
+  const gatherPlannerEntries = (ids) => {
+    return ids
+      .map((id) => {
+        const row = plannerRowsById.get(id);
+        if (!row) {
+          return null;
+        }
+        const culture = cultureMap.get(id);
+        const modeSelect = row.querySelector('.bulk-mode');
+        const mode = modeSelect ? modeSelect.value : MODE_CONFLUENCY;
+        row.dataset.mode = mode;
+        const readValue = (selector) => {
+          const element = row.querySelector(selector);
+          if (!element) {
+            return '';
+          }
+          if (element.type === 'checkbox') {
+            return element.checked ? '1' : '';
+          }
+          return element.value || '';
+        };
+        const entry = {
+          culture_id: id,
+          measured_cell_concentration: culture?.measured_cell_concentration ?? '',
+          measured_slurry_volume_ml: culture?.measured_slurry_volume_ml ?? '',
+          cell_concentration: readValue('.bulk-cell-concentration'),
+          vessel_id: readValue('.bulk-vessel'),
+          vessels_used: readValue('.bulk-vessels-used'),
+          seeded_cells: readValue('.bulk-seeded'),
+          media: readValue('.bulk-media'),
+          doubling_time_hours: readValue('.bulk-doubling'),
+          notes: readValue('.bulk-notes'),
+          date: readValue('.bulk-date'),
+          use_previous_media: readValue('.bulk-use-previous') ? 1 : '',
+        };
+        const daysRaw = readValue('.bulk-hours');
+        if (daysRaw) {
+          const days = Number.parseFloat(daysRaw);
+          if (Number.isFinite(days)) {
+            entry.target_hours = String(days * 24);
+          }
+        }
+        const override = readValue('.bulk-doubling-override');
+        if (override) {
+          entry.doubling_time_override = override;
+        }
+        const cultureMeasurements = culture;
+        if (
+          cultureMeasurements?.measured_cell_concentration != null &&
+          cultureMeasurements?.measured_slurry_volume_ml != null
+        ) {
+          const total =
+            cultureMeasurements.measured_cell_concentration *
+            cultureMeasurements.measured_slurry_volume_ml;
+          entry.measured_yield_millions = total / 1_000_000;
+        }
+        if (mode === MODE_DILUTION) {
+          entry.dilution_input_mode = row.dataset.dilutionMode || 'concentration';
+          entry.total_volume_ml = readValue('.bulk-total-volume');
+          if (entry.dilution_input_mode === 'cells') {
+            entry.cells_to_seed = readValue('.bulk-cells-to-seed');
+            entry.volume_per_seed_ml = readValue('.bulk-volume-per-seed');
+          } else {
+            entry.final_concentration = readValue('.bulk-final-concentration');
+          }
+        }
+        return entry;
+      })
+      .filter((entry) => entry !== null);
+  };
+
+  const updateFromHarvestResponse = (records) => {
+    if (!Array.isArray(records)) {
+      return;
+    }
+    records.forEach((record) => {
+      const id = Number.parseInt(record.culture_id, 10);
+      if (Number.isNaN(id)) {
+        return;
+      }
+      const culture = cultureMap.get(id);
+      if (culture) {
+        culture.measured_cell_concentration = record.measured_cell_concentration;
+        culture.measured_slurry_volume_ml = record.measured_slurry_volume_ml;
+        if (record.measured_slurry_volume_ml != null) {
+          culture.default_slurry_volume_ml = record.measured_slurry_volume_ml;
+        }
+      }
     });
-    const mediaCheckbox = row.querySelector('.bulk-use-previous');
-    if (mediaCheckbox) {
-      const mediaField = row.querySelector('.bulk-media');
-      mediaCheckbox.addEventListener('change', () => {
-        if (mediaCheckbox.checked && mediaField) {
-          mediaField.value = mediaCheckbox.dataset.media || '';
-        }
-      });
+  };
+
+  const updateRowsFromResponse = (records) => {
+    if (!Array.isArray(records)) {
+      return;
     }
-    const calcButton = row.querySelector('.bulk-calc');
-    if (calcButton) {
-      calcButton.addEventListener('click', () => {
-        const id = Number.parseInt(row.dataset.cultureId, 10);
-        if (!Number.isNaN(id)) {
-          calculateSeedingForRow(row, id);
+    records.forEach((record) => {
+      const cultureId = Number.parseInt(record.culture_id, 10);
+      if (Number.isNaN(cultureId)) {
+        return;
+      }
+      const row = plannerRowsById.get(cultureId);
+      if (row) {
+        row.dataset.savedPassageNumber = record.passage_number;
+        row.dataset.savedDate = record.date;
+        if (record.seeded_cells !== undefined && record.seeded_cells !== null) {
+          row.dataset.savedSeeded = record.seeded_cells;
+          row.dataset.savedSeededDisplay =
+            record.seeded_cells_formatted || formatCells(record.seeded_cells);
         }
-      });
-    }
-  });
+        row.dataset.nextPassage = record.passage_number + 1;
+        const metaNodes = row.querySelectorAll('td .meta');
+        if (metaNodes.length) {
+          metaNodes[0].textContent = `Next: P${record.passage_number + 1}`;
+        }
+        const dateField = row.querySelector('.bulk-date');
+        if (dateField) {
+          dateField.value = record.date;
+        }
+        const mediaField = row.querySelector('.bulk-media');
+        if (mediaField) {
+          mediaField.value = record.media || '';
+        }
+        const seededField = row.querySelector('.bulk-seeded');
+        if (seededField && record.seeded_cells !== undefined && record.seeded_cells !== null) {
+          seededField.value = record.seeded_cells;
+        }
+      }
+      const culture = cultureMap.get(cultureId);
+      if (culture) {
+        culture.latest_passage_number = record.passage_number;
+        culture.latest_passage_date = record.date;
+        culture.latest_media = record.media || '';
+        culture.latest_seeded_cells = record.seeded_cells ?? null;
+        culture.latest_seeded_display =
+          record.seeded_cells_formatted ||
+          (record.seeded_cells !== undefined && record.seeded_cells !== null
+            ? formatCells(record.seeded_cells)
+            : culture.latest_seeded_display);
+        culture.next_passage_number = record.passage_number + 1;
+        culture.measured_cell_concentration = record.measured_cell_concentration;
+        culture.measured_slurry_volume_ml = record.measured_slurry_volume_ml;
+        if (record.measured_slurry_volume_ml != null) {
+          culture.default_slurry_volume_ml = record.measured_slurry_volume_ml;
+        }
+      }
+    });
+  };
+
+  const renderLabelOutput = (ids) => {
+    renderLabelTable(ids);
+  };
 
   if (selectAllButton) {
     selectAllButton.addEventListener('click', () => {
@@ -1290,18 +1732,6 @@ function initBulkProcessing() {
     });
   }
 
-  if (prepareButton) {
-    prepareButton.addEventListener('click', () => {
-      const ids = getSelectedIds();
-      toggleRows(ids);
-      if (!ids.length) {
-        showStatus('Select at least one culture to prepare passages.', 'error');
-      } else {
-        showStatus('Fill in the visible rows and save when ready.');
-      }
-    });
-  }
-
   if (labelsButton) {
     labelsButton.addEventListener('click', () => {
       const ids = getSelectedIds();
@@ -1309,21 +1739,153 @@ function initBulkProcessing() {
     });
   }
 
-  if (form) {
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const ids = getSelectedIds();
-      if (!ids.length) {
-        showStatus('Select at least one culture before saving.', 'error');
-        return;
+  if (harvestTab) {
+    harvestTab.addEventListener('click', () => {
+      if (workflow && !workflow.hidden) {
+        setActiveTab('harvest');
       }
-      const entries = gatherEntries(ids);
-      if (!entries.length) {
-        showStatus('Add passage details before saving.', 'error');
-        return;
-      }
+    });
+  }
 
-      showStatus('Saving passages…');
+  if (plannerTab) {
+    plannerTab.addEventListener('click', () => {
+      if (plannerTab.disabled) {
+        showStatus(
+          harvestStatus,
+          'Save harvest measurements to unlock the planner.',
+          'error'
+        );
+        setActiveTab('harvest');
+        return;
+      }
+      setActiveTab('planner');
+    });
+  }
+
+  if (startButton) {
+    startButton.addEventListener('click', () => {
+      const ids = getSelectedIds();
+      activeIds = ids;
+      resetStatuses();
+      if (!ids.length) {
+        ensureWorkflowVisible(ids);
+        showStatus(statusNode, 'Select at least one culture to begin.', 'error');
+        return;
+      }
+      harvestSaved = false;
+      renderHarvestRows(ids);
+      renderPlannerRows(ids);
+      if (plannerTab) {
+        plannerTab.disabled = true;
+      }
+      ensureWorkflowVisible(ids);
+      setActiveTab('harvest');
+      showStatus(harvestStatus, 'Record harvest measurements, then save to continue.');
+      clearElement(labelOutput);
+      if (labelOutput) {
+        labelOutput.hidden = true;
+      }
+      clearElement(copyOutput);
+      if (copyOutput) {
+        copyOutput.hidden = true;
+      }
+    });
+  }
+
+  if (harvestForm) {
+    harvestForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!activeIds.length) {
+        showStatus(harvestStatus, 'Select cultures before saving.', 'error');
+        return;
+      }
+      const entries = [];
+      let hasError = false;
+      activeIds.forEach((id) => {
+        const row = harvestRowsById.get(id);
+        if (!row) {
+          return;
+        }
+        const culture = cultureMap.get(id);
+        const name = culture ? culture.name : `Culture ${id}`;
+        const concInput = row.querySelector('.bulk-harvest-concentration');
+        const volInput = row.querySelector('.bulk-harvest-volume');
+        const concValue = concInput ? concInput.value.trim() : '';
+        const volValue = volInput ? volInput.value.trim() : '';
+        const concNumber = Number.parseFloat(concValue);
+        const volNumber = Number.parseFloat(volValue);
+        if (!concValue || !Number.isFinite(concNumber) || concNumber <= 0) {
+          hasError = true;
+          showStatus(
+            harvestStatus,
+            `Enter a valid measured concentration for ${name}.`,
+            'error'
+          );
+          return;
+        }
+        if (!volValue || !Number.isFinite(volNumber) || volNumber <= 0) {
+          hasError = true;
+          showStatus(harvestStatus, `Enter a valid slurry volume for ${name}.`, 'error');
+          return;
+        }
+        entries.push({
+          culture_id: id,
+          measured_cell_concentration: concNumber,
+          measured_slurry_volume_ml: volNumber,
+        });
+      });
+      if (hasError || !entries.length) {
+        return;
+      }
+      showStatus(harvestStatus, 'Saving harvest…');
+      try {
+        const response = await fetch('/api/bulk-harvest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entries }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          showStatus(harvestStatus, data.error || 'Failed to save harvest.', 'error');
+          return;
+        }
+        harvestSaved = true;
+        updateFromHarvestResponse(data.records);
+        renderPlannerRows(activeIds);
+        if (plannerTab) {
+          plannerTab.disabled = false;
+        }
+        setActiveTab('planner');
+        showStatus(harvestStatus, 'Harvest saved. Configure planner inputs next.');
+        showStatus(plannerStatus, 'Enter seeding parameters and save to log passages.');
+      } catch (error) {
+        showStatus(harvestStatus, error.message, 'error');
+      }
+    });
+  }
+
+  if (plannerForm) {
+    plannerForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!activeIds.length) {
+        showStatus(plannerStatus, 'Select cultures before saving.', 'error');
+        return;
+      }
+      if (!harvestSaved) {
+        showStatus(plannerStatus, 'Save harvest measurements before logging passages.', 'error');
+        setActiveTab('harvest');
+        return;
+      }
+      const entries = gatherPlannerEntries(activeIds);
+      if (!entries.length) {
+        showStatus(plannerStatus, 'Add passage details before saving.', 'error');
+        return;
+      }
+      const confirmed = window.confirm('Are you sure you want to save?');
+      if (!confirmed) {
+        return;
+      }
+      showStatus(plannerStatus, 'Saving passages…');
       try {
         const response = await fetch('/api/bulk-passages', {
           method: 'POST',
@@ -1332,19 +1894,23 @@ function initBulkProcessing() {
         });
         const data = await response.json();
         if (!response.ok) {
-          showStatus(data.error || 'Failed to save passages.', 'error');
+          showStatus(plannerStatus, data.error || 'Failed to save passages.', 'error');
           return;
         }
         updateRowsFromResponse(data.passages);
-        showStatus(`Saved ${data.created} passage${data.created === 1 ? '' : 's'}.`);
-        renderCopyTable(ids);
-        renderLabelTable(ids);
+        showStatus(
+          plannerStatus,
+          `Saved ${data.created} passage${data.created === 1 ? '' : 's'}.`
+        );
+        renderCopyTable(activeIds);
+        renderLabelOutput(activeIds);
       } catch (error) {
-        showStatus(error.message, 'error');
+        showStatus(plannerStatus, error.message, 'error');
       }
     });
   }
 }
+
 
 document.addEventListener('DOMContentLoaded', () => {
   attachMediaCheckboxHandler();

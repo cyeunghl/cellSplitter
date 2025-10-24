@@ -29,6 +29,45 @@ app.config["SECRET_KEY"] = "cellsplitter-secret-key"
 db = SQLAlchemy(app)
 
 
+HARVEST_VOLUME_HINTS: list[tuple[str, float]] = [
+    ("t225", 15.0),
+    ("t175", 10.0),
+    ("t150", 12.0),
+    ("t125", 9.0),
+    ("t75", 7.0),
+    ("t25", 3.0),
+    ("t12", 2.0),
+    ("225", 15.0),
+    ("175", 10.0),
+    ("150", 10.0),
+    ("125", 9.0),
+    ("75", 7.0),
+    ("25", 3.0),
+    ("12.5", 2.0),
+    ("100 mm", 7.0),
+    ("150 mm", 10.0),
+    ("60 mm", 5.0),
+    ("35 mm", 2.0),
+    ("6-well", 1.5),
+    ("12-well", 1.0),
+    ("24-well", 0.5),
+    ("48-well", 0.25),
+    ("96-well", 0.1),
+    ("384-well", 0.02),
+    ("1536", 0.01),
+]
+
+
+def suggest_slurry_volume(vessel_name: Optional[str]) -> Optional[float]:
+    if not vessel_name:
+        return None
+    normalized = vessel_name.lower()
+    for keyword, volume in HARVEST_VOLUME_HINTS:
+        if keyword in normalized:
+            return volume
+    return None
+
+
 class CellLine(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False, unique=True)
@@ -351,8 +390,10 @@ def index():
             default_cell_concentration = 1_000_000
 
         default_vessel_id = None
+        latest_vessel_name = None
         if latest and latest.vessel_id:
             default_vessel_id = latest.vessel_id
+            latest_vessel_name = latest.vessel.name if latest.vessel else None
         elif t75_vessel_id is not None:
             default_vessel_id = t75_vessel_id
 
@@ -365,6 +406,10 @@ def index():
         measured_yield_millions = None
         if latest and latest.measured_yield_cells:
             measured_yield_millions = latest.measured_yield_cells / 1_000_000
+
+        default_slurry_volume_ml = culture.measured_slurry_volume_ml
+        if default_slurry_volume_ml is None:
+            default_slurry_volume_ml = suggest_slurry_volume(latest_vessel_name)
 
         culture_payload = {
             "id": culture.id,
@@ -387,10 +432,22 @@ def index():
             "measured_cell_concentration": culture.measured_cell_concentration,
             "measured_slurry_volume_ml": culture.measured_slurry_volume_ml,
             "measured_yield_millions": measured_yield_millions,
+            "latest_vessel_name": latest_vessel_name,
+            "default_slurry_volume_ml": default_slurry_volume_ml,
         }
         bulk_culture_payload.append(culture_payload)
 
     bulk_culture_map = {entry["id"]: entry for entry in bulk_culture_payload}
+
+    vessel_payload = [
+        {
+            "id": vessel.id,
+            "name": vessel.name,
+            "area_cm2": vessel.area_cm2,
+            "cells_at_100_confluency": vessel.cells_at_100_confluency,
+        }
+        for vessel in vessels
+    ]
 
     return render_template(
         "index.html",
@@ -400,6 +457,7 @@ def index():
         vessels=vessels,
         bulk_cultures=bulk_culture_map,
         bulk_cultures_json=json.dumps(bulk_culture_payload),
+        vessel_payload_json=json.dumps(vessel_payload),
         default_vessel_id=t75_vessel_id,
         today=date.today(),
     )
@@ -873,6 +931,77 @@ def calculate_seeding():
     return jsonify(response)
 
 
+@app.route("/api/bulk-harvest", methods=["POST"])
+def record_bulk_harvest():
+    payload = request.get_json(silent=True) or {}
+    entries = payload.get("entries")
+    if not isinstance(entries, list) or not entries:
+        return jsonify({"error": "Select at least one culture to record."}), 400
+
+    results: list[dict] = []
+
+    for entry in entries:
+        culture_id_raw = entry.get("culture_id")
+        try:
+            culture_id = int(culture_id_raw)
+        except (TypeError, ValueError):
+            db.session.rollback()
+            return jsonify({"error": "Invalid culture identifier supplied."}), 400
+
+        culture = Culture.query.get(culture_id)
+        if culture is None:
+            db.session.rollback()
+            return jsonify({"error": f"Culture {culture_id} could not be found."}), 404
+        if not culture.is_active:
+            db.session.rollback()
+            return jsonify(
+                {"error": f"Culture '{culture.name}' has been ended and cannot be updated."}
+            ), 400
+
+        measured_concentration = parse_numeric(entry.get("measured_cell_concentration"))
+        measured_volume = parse_numeric(entry.get("measured_slurry_volume_ml"))
+
+        if measured_concentration is None or measured_concentration <= 0:
+            db.session.rollback()
+            return jsonify(
+                {
+                    "error": (
+                        f"Enter the measured concentration for culture '{culture.name}' "
+                        "before continuing."
+                    )
+                }
+            ), 400
+
+        if measured_volume is None or measured_volume <= 0:
+            db.session.rollback()
+            return jsonify(
+                {
+                    "error": (
+                        f"Enter the slurry volume for culture '{culture.name}' before continuing."
+                    )
+                }
+            ), 400
+
+        culture.measured_cell_concentration = measured_concentration
+        culture.measured_slurry_volume_ml = measured_volume
+
+        measured_yield_cells = measured_concentration * measured_volume
+
+        results.append(
+            {
+                "culture_id": culture.id,
+                "measured_cell_concentration": measured_concentration,
+                "measured_slurry_volume_ml": measured_volume,
+                "measured_yield_cells": measured_yield_cells,
+                "measured_yield_millions": measured_yield_cells / 1_000_000,
+                "measured_yield_display": format_cells(measured_yield_cells),
+            }
+        )
+
+    db.session.commit()
+    return jsonify({"success": True, "records": results})
+
+
 @app.route("/api/bulk-passages", methods=["POST"])
 def create_bulk_passages():
     payload = request.get_json(silent=True) or {}
@@ -952,6 +1081,21 @@ def create_bulk_passages():
         if measured_slurry_volume is not None:
             culture.measured_slurry_volume_ml = measured_slurry_volume
 
+        if measured_yield_cells is None:
+            if (
+                measured_cell_concentration is not None
+                and measured_slurry_volume is not None
+            ):
+                measured_yield_cells = measured_cell_concentration * measured_slurry_volume
+            elif (
+                culture.measured_cell_concentration is not None
+                and culture.measured_slurry_volume_ml is not None
+            ):
+                measured_yield_cells = (
+                    culture.measured_cell_concentration
+                    * culture.measured_slurry_volume_ml
+                )
+
         passage = Passage(
             culture=culture,
             passage_number=passage_number,
@@ -977,6 +1121,12 @@ def create_bulk_passages():
                 "seeded_cells": seeded_cells,
                 "seeded_cells_formatted": format_cells(seeded_cells)
                 if seeded_cells is not None
+                else None,
+                "measured_cell_concentration": culture.measured_cell_concentration,
+                "measured_slurry_volume_ml": culture.measured_slurry_volume_ml,
+                "measured_yield_cells": measured_yield_cells,
+                "measured_yield_display": format_cells(measured_yield_cells)
+                if measured_yield_cells is not None
                 else None,
             }
         )
