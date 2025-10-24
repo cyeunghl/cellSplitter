@@ -73,12 +73,23 @@
         {% endfor %}
       </div>
       <article class="card label-card">
-        <header class="card-header">
-          <h3>Myco test labels</h3>
-          <p>Quick label text for active cultures with today&rsquo;s date and initials.</p>
+        <header class="card-header with-actions">
+          <div>
+            <h3>Myco test labels</h3>
+            <p>Quick label text for active cultures with today&rsquo;s date and initials.</p>
+          </div>
+          <div class="card-actions">
+            <button
+              type="button"
+              class="button secondary copy-myco-table"
+              data-table-id="myco-label-table"
+            >
+              Copy table
+            </button>
+          </div>
         </header>
         <div class="card-body table-wrapper">
-          <table class="table label-table">
+          <table class="table label-table" id="myco-label-table">
             <thead>
               <tr>
                 <th scope="col">Label text</th>
@@ -90,19 +101,9 @@
                 {% set label_text = today.strftime('%Y-%m-%d') ~ ' ' ~ culture.name ~ ' CY' %}
                 <tr>
                   <td class="wrap">
-                    <div class="label-snippet-row">
-                      <pre class="label-snippet">{{ label_text }}</pre>
-                      <button
-                        type="button"
-                        class="button ghost copy-myco-label"
-                        data-label-text="{{ label_text }}"
-                        aria-label="Copy myco label for {{ culture.name }}"
-                      >
-                        Copy
-                      </button>
-                    </div>
+                    <pre class="label-snippet">{{ label_text }}</pre>
                   </td>
-                  <td>{{ culture.name }}</td>
+                  <td class="myco-culture">{{ culture.name }}</td>
                 </tr>
               {% endfor %}
             </tbody>

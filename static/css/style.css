@@ -133,6 +133,19 @@ a:hover {
   padding: 1.25rem 1.5rem;
 }
 
+.card-header.with-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.card-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .card-header {
   border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(52, 88, 235, 0.08), rgba(52, 88, 235, 0));

@@ -528,17 +528,44 @@ function attachDilutionModeSwitcher() {
   update();
 }
 
-function attachMycoLabelCopyHandlers() {
-  const buttons = document.querySelectorAll('.copy-myco-label');
-  if (!buttons.length) {
+function attachMycoTableCopyHandler() {
+  const button = document.querySelector('.copy-myco-table');
+  if (!button) {
     return;
   }
 
-  buttons.forEach((button) => {
-    button.addEventListener('click', async () => {
-      const labelText = button.dataset.labelText || '';
-      await copyPlainText(labelText);
-    });
+  const tableId = button.dataset.tableId;
+  if (!tableId) {
+    return;
+  }
+
+  const table = document.getElementById(tableId);
+  if (!table) {
+    return;
+  }
+
+  button.addEventListener('click', async () => {
+    const rows = Array.from(table.querySelectorAll('tbody tr'));
+    const lines = rows
+      .map((row) => {
+        const label = row.querySelector('.label-snippet');
+        const culture = row.querySelector('.myco-culture');
+        const labelText = label ? label.textContent.trim() : '';
+        const cultureText = culture ? culture.textContent.trim() : '';
+        if (!labelText && !cultureText) {
+          return '';
+        }
+        if (!cultureText) {
+          return labelText;
+        }
+        return `${labelText}\t${cultureText}`;
+      })
+      .filter((line) => line);
+
+    const tableText = lines.join('\n');
+    if (tableText) {
+      await copyPlainText(tableText);
+    }
   });
 }
 
@@ -547,5 +574,5 @@ document.addEventListener('DOMContentLoaded', () => {
   attachModeSwitcher();
   attachDilutionModeSwitcher();
   attachSeedingFormHandler();
-  attachMycoLabelCopyHandlers();
+  attachMycoTableCopyHandler();
 });
