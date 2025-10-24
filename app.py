@@ -256,9 +256,17 @@ def parse_date(value: str | None) -> date:
         return date.today()
 
 
-def parse_numeric(value: str | None) -> Optional[float]:
+def parse_numeric(value: str | float | int | None) -> Optional[float]:
     if value is None:
         return None
+    if isinstance(value, bool):
+        # Prevent booleans (which are ints) from being treated as numeric input.
+        return None
+    if isinstance(value, (int, float)):
+        numeric_value = float(value)
+        if math.isnan(numeric_value):
+            return None
+        return numeric_value
     cleaned = value.strip()
     if not cleaned:
         return None
@@ -280,9 +288,17 @@ def parse_numeric(value: str | None) -> Optional[float]:
             return None
 
 
-def parse_millions(value: str | None) -> Optional[float]:
+def parse_millions(value: str | float | int | None) -> Optional[float]:
     if value is None:
         return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        numeric_value = parse_numeric(value)
+        if numeric_value is None:
+            return None
+        if numeric_value >= 1_000_000:
+            return numeric_value
+        return numeric_value * 1_000_000
+
     cleaned = value.strip()
     if not cleaned:
         return None

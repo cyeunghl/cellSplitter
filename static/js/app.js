@@ -316,6 +316,20 @@ async function copyPlainText(text) {
   fallbackCopy();
 }
 
+async function parseJsonResponse(response) {
+  const text = await response.text();
+  if (!text) {
+    return {};
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const parseError = new Error('INVALID_JSON_RESPONSE');
+    parseError.rawText = text;
+    throw parseError;
+  }
+}
+
 function attachSeedingFormHandler() {
   const form = document.querySelector('#seeding-form');
   if (!form) {
@@ -400,7 +414,15 @@ function attachSeedingFormHandler() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await response.json();
+      let data;
+      try {
+        data = await parseJsonResponse(response);
+      } catch (parseError) {
+        console.error('Failed to parse seeding response', parseError);
+        resultContainer.innerHTML =
+          '<p class="error">Server returned an unexpected response. Please try again.</p>';
+        return;
+      }
       if (!response.ok) {
         resultContainer.innerHTML = `<p class="error">${data.error || 'Calculation failed.'}</p>`;
         return;
@@ -483,7 +505,12 @@ function attachModeSwitcher() {
     form.dataset.mode = mode;
     const sections = form.querySelectorAll('[data-mode-section]');
     sections.forEach((section) => {
-      section.hidden = section.dataset.modeSection !== mode;
+      const isActive = section.dataset.modeSection === mode;
+      section.hidden = !isActive;
+      const inputs = section.querySelectorAll('input, select, textarea');
+      inputs.forEach((input) => {
+        input.disabled = !isActive;
+      });
     });
     const conditionalFields = form.querySelectorAll('[data-required-when]');
     conditionalFields.forEach((field) => {
@@ -940,7 +967,12 @@ function initBulkProcessing() {
     row.dataset.mode = mode;
     const sections = row.querySelectorAll('[data-bulk-mode-section]');
     sections.forEach((section) => {
-      section.hidden = section.dataset.bulkModeSection !== mode;
+      const isActive = section.dataset.bulkModeSection === mode;
+      section.hidden = !isActive;
+      const inputs = section.querySelectorAll('input, select, textarea');
+      inputs.forEach((input) => {
+        input.disabled = !isActive;
+      });
     });
   };
 
@@ -951,7 +983,12 @@ function initBulkProcessing() {
     const mode = row.dataset.dilutionMode || 'concentration';
     const sections = row.querySelectorAll('[data-bulk-dilution-section]');
     sections.forEach((section) => {
-      section.hidden = section.dataset.bulkDilutionSection !== mode;
+      const isActive = section.dataset.bulkDilutionSection === mode;
+      section.hidden = !isActive;
+      const inputs = section.querySelectorAll('input, select, textarea');
+      inputs.forEach((input) => {
+        input.disabled = !isActive;
+      });
     });
   };
 
@@ -1284,8 +1321,8 @@ function initBulkProcessing() {
       copyRowButton.type = 'button';
       copyRowButton.className = 'button ghost small';
       copyRowButton.textContent = 'Copy';
-      copyRowButton.addEventListener('click', () => {
-        copyPlainText(snapshot);
+      copyRowButton.addEventListener('click', async () => {
+        await copyPlainText(snapshot);
       });
       actionsCell.appendChild(copyRowButton);
     });
@@ -1303,8 +1340,8 @@ function initBulkProcessing() {
     copyAllButton.type = 'button';
     copyAllButton.className = 'button secondary';
     copyAllButton.textContent = 'Copy all';
-    copyAllButton.addEventListener('click', () => {
-      copyPlainText(lines.join('\n\n'));
+    copyAllButton.addEventListener('click', async () => {
+      await copyPlainText(lines.join('\n'));
     });
     copyOutput.appendChild(copyAllButton);
     copyOutput.hidden = false;
@@ -1409,8 +1446,8 @@ function initBulkProcessing() {
       copyRowButton.type = 'button';
       copyRowButton.className = 'button ghost small';
       copyRowButton.textContent = 'Copy';
-      copyRowButton.addEventListener('click', () => {
-        copyPlainText(labelText);
+      copyRowButton.addEventListener('click', async () => {
+        await copyPlainText(labelText);
       });
       actionsCell.appendChild(copyRowButton);
     });
@@ -1428,8 +1465,8 @@ function initBulkProcessing() {
     copyAllButton.type = 'button';
     copyAllButton.className = 'button secondary';
     copyAllButton.textContent = 'Copy all labels';
-    copyAllButton.addEventListener('click', () => {
-      copyPlainText(lines.join('\n\n'));
+    copyAllButton.addEventListener('click', async () => {
+      await copyPlainText(lines.join('\n'));
     });
     labelOutput.appendChild(copyAllButton);
     labelOutput.hidden = false;
@@ -1507,7 +1544,17 @@ function initBulkProcessing() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await response.json();
+      let data;
+      try {
+        data = await parseJsonResponse(response);
+      } catch (parseError) {
+        console.error('Failed to parse bulk seeding response', parseError);
+        if (resultContainer) {
+          resultContainer.innerHTML =
+            '<p class="error">Server returned an unexpected response. Please try again.</p>';
+        }
+        return;
+      }
       if (!response.ok) {
         if (resultContainer) {
           resultContainer.innerHTML = `<p class="error">${
@@ -1842,7 +1889,18 @@ function initBulkProcessing() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ entries }),
         });
-        const data = await response.json();
+        let data;
+        try {
+          data = await parseJsonResponse(response);
+        } catch (parseError) {
+          console.error('Failed to parse bulk harvest response', parseError);
+          showStatus(
+            harvestStatus,
+            'Server returned an unexpected response. Please try again.',
+            'error'
+          );
+          return;
+        }
         if (!response.ok) {
           showStatus(harvestStatus, data.error || 'Failed to save harvest.', 'error');
           return;
@@ -1890,7 +1948,18 @@ function initBulkProcessing() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ entries }),
         });
-        const data = await response.json();
+        let data;
+        try {
+          data = await parseJsonResponse(response);
+        } catch (parseError) {
+          console.error('Failed to parse bulk passage response', parseError);
+          showStatus(
+            plannerStatus,
+            'Server returned an unexpected response. Please try again.',
+            'error'
+          );
+          return;
+        }
         if (!response.ok) {
           showStatus(plannerStatus, data.error || 'Failed to save passages.', 'error');
           return;

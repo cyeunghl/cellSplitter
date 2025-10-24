@@ -27,53 +27,55 @@
       {% endif %}
     </div>
     {% if active_cultures %}
-      <div class="grid">
-        {% for culture in active_cultures %}
-          <article class="card">
-            <header class="card-header">
-              <h2>{{ culture.name }}</h2>
-              <p>
-                {{ culture.cell_line.name }} ·
-                {{ culture.cell_line.display_doubling_time() }}
-              </p>
-            </header>
-            <div class="card-body">
-              <dl>
-                <div>
-                  <dt>Started</dt>
-                  <dd>{{ culture.start_date.strftime('%Y-%m-%d') }}</dd>
-                </div>
-                <div>
-                  <dt>Current passage</dt>
-                  <dd>
-                    {% if culture.latest_passage %}
-                      P{{ culture.latest_passage.passage_number }}
-                      ({{ culture.latest_passage.date.strftime('%Y-%m-%d') }})
-                    {% else %}
-                      —
-                    {% endif %}
-                  </dd>
-                </div>
-              </dl>
-              {% if culture.latest_passage and culture.latest_passage.passage_number > 20 %}
-                <p class="warning-text">Time to refresh and thaw new cell line</p>
-              {% endif %}
-            </div>
-            <footer class="card-footer actions">
-              <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">
-                View journal
-              </a>
-              <form
-                class="inline-form"
-                method="post"
-                action="{{ url_for('end_culture', culture_id=culture.id) }}"
-              >
-                <input type="hidden" name="ended_on" value="{{ today }}" />
-                <button class="button danger" type="submit">End culture</button>
-              </form>
-            </footer>
-          </article>
-        {% endfor %}
+      <div class="table-wrapper">
+        <table class="table cultures-table">
+          <thead>
+            <tr>
+              <th scope="col">Culture</th>
+              <th scope="col">Started</th>
+              <th scope="col">Current passage</th>
+              <th scope="col" class="actions-column">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for culture in active_cultures %}
+              <tr>
+                <td>
+                  <strong>{{ culture.name }}</strong>
+                  <p class="meta">
+                    {{ culture.cell_line.name }} ·
+                    {{ culture.cell_line.display_doubling_time() }}
+                  </p>
+                </td>
+                <td>{{ culture.start_date.strftime('%Y-%m-%d') }}</td>
+                <td>
+                  {% if culture.latest_passage %}
+                    P{{ culture.latest_passage.passage_number }}
+                    ({{ culture.latest_passage.date.strftime('%Y-%m-%d') }})
+                  {% else %}
+                    —
+                  {% endif %}
+                  {% if culture.latest_passage and culture.latest_passage.passage_number > 20 %}
+                    <p class="warning-text">Time to refresh and thaw new cell line</p>
+                  {% endif %}
+                </td>
+                <td class="actions">
+                  <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">
+                    View journal
+                  </a>
+                  <form
+                    class="inline-form"
+                    method="post"
+                    action="{{ url_for('end_culture', culture_id=culture.id) }}"
+                  >
+                    <input type="hidden" name="ended_on" value="{{ today }}" />
+                    <button class="button danger" type="submit">End culture</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
       <article class="card label-card">
         <header class="card-header with-actions">
