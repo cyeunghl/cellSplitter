@@ -18,6 +18,13 @@ body {
   color: var(--text);
 }
 
+[data-mode-section][hidden],
+[data-dilution-section][hidden],
+.bulk-mode-section[hidden],
+.bulk-dilution-section[hidden] {
+  display: none !important;
+}
+
 h1,
  h2,
  h3 {

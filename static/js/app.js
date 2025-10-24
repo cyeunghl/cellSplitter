@@ -154,10 +154,63 @@ function attachMediaCheckboxHandler() {
     return;
   }
   const previousMedia = checkbox.dataset.media || '';
+  if (previousMedia) {
+    checkbox.checked = true;
+    if (!mediaField.value) {
+      mediaField.value = previousMedia;
+    }
+  }
   checkbox.addEventListener('change', () => {
     if (checkbox.checked) {
       mediaField.value = previousMedia;
     }
+  });
+}
+
+async function copyLabelFromPassageForm() {
+  const passageForm = document.querySelector('[data-passage-form]');
+  if (!passageForm) {
+    return;
+  }
+
+  const cultureName = passageForm.dataset.cultureName || '';
+  const nextPassage = passageForm.dataset.nextPassage || '';
+  const dateInput = passageForm.querySelector('input[name="date"]');
+  const dateValue = dateInput && dateInput.value ? dateInput.value : new Date().toISOString().slice(0, 10);
+  const seededInput = passageForm.querySelector('#passage-seeded-cells');
+  const seededRaw = seededInput ? seededInput.value : '';
+
+  let seededDisplay = '—';
+  if (seededRaw) {
+    const seededNumber = Number(seededRaw);
+    if (Number.isFinite(seededNumber)) {
+      seededDisplay = formatCellsForLabel(seededNumber);
+    } else {
+      seededDisplay = seededRaw;
+    }
+  }
+
+  const parts = [];
+  if (cultureName) {
+    parts.push(`Culture: ${cultureName}`);
+  }
+  parts.push(`Date: ${dateValue}`);
+  if (nextPassage) {
+    const normalized = String(nextPassage).startsWith('P') ? String(nextPassage) : `P${nextPassage}`;
+    parts.push(`Passage: ${normalized}`);
+  }
+  parts.push(`Cells seeded: ${seededDisplay}`);
+
+  await copyPlainText(parts.join('\n'));
+}
+
+function attachPassageLabelCopyHandler() {
+  const button = document.querySelector('[data-copy-passage-label]');
+  if (!button) {
+    return;
+  }
+  button.addEventListener('click', async () => {
+    await copyLabelFromPassageForm();
   });
 }
 
@@ -1257,19 +1310,9 @@ function initBulkProcessing() {
     if (culture.name) {
       parts.push(culture.name);
     }
-    const snapshotDate = culture.latest_passage_date || today;
+    const snapshotDate = today;
     if (snapshotDate) {
       parts.push(snapshotDate);
-    }
-    if (culture.latest_passage_number != null) {
-      const passageString = String(culture.latest_passage_number);
-      parts.push(passageString.startsWith('P') ? passageString : `P${passageString}`);
-    }
-    if (culture.latest_seeded_display) {
-      parts.push(`${culture.latest_seeded_display} cells`);
-    }
-    if (culture.latest_media) {
-      parts.push(culture.latest_media);
     }
     return parts.join(' · ');
   };
@@ -1279,7 +1322,8 @@ function initBulkProcessing() {
       return;
     }
     clearElement(copyOutput);
-    if (!ids.length) {
+    const targetIds = ids && ids.length ? ids : activeIds;
+    if (!targetIds.length) {
       copyOutput.innerHTML =
         '<p class="form-hint">Select at least one culture to generate copy text.</p>';
       copyOutput.hidden = false;
@@ -1297,7 +1341,7 @@ function initBulkProcessing() {
       '<th scope="col">Culture</th><th scope="col">Copy text</th><th scope="col" class="actions-column">Actions</th>';
     const tbody = table.createTBody();
 
-    ids.forEach((id) => {
+    targetIds.forEach((id) => {
       const culture = cultureMap.get(id);
       if (!culture) {
         return;
@@ -1341,7 +1385,7 @@ function initBulkProcessing() {
     copyAllButton.className = 'button secondary';
     copyAllButton.textContent = 'Copy all';
     copyAllButton.addEventListener('click', async () => {
-      await copyPlainText(lines.join('\n'));
+      await copyPlainText(lines.join('; '));
     });
     copyOutput.appendChild(copyAllButton);
     copyOutput.hidden = false;
@@ -1407,7 +1451,8 @@ function initBulkProcessing() {
       return;
     }
     clearElement(labelOutput);
-    if (!ids.length) {
+    const targetIds = ids && ids.length ? ids : activeIds;
+    if (!targetIds.length) {
       labelOutput.innerHTML =
         '<p class="form-hint">Select cultures to prepare label text.</p>';
       labelOutput.hidden = false;
@@ -1425,7 +1470,7 @@ function initBulkProcessing() {
       '<th scope="col">Culture</th><th scope="col">Label text</th><th scope="col" class="actions-column">Actions</th>';
     const tbody = table.createTBody();
 
-    ids.forEach((id) => {
+    targetIds.forEach((id) => {
       const labelText = buildLabelText(id);
       if (!labelText) {
         return;
@@ -1778,9 +1823,20 @@ function initBulkProcessing() {
   }
 
   if (labelsButton) {
-    labelsButton.addEventListener('click', () => {
+    labelsButton.addEventListener('click', async () => {
       const ids = getSelectedIds();
       renderLabelTable(ids);
+      const targetIds = ids && ids.length ? ids : activeIds;
+      if (!targetIds.length) {
+        return;
+      }
+      const labelTexts = targetIds
+        .map((id) => buildLabelText(id))
+        .filter((text) => typeof text === 'string' && text.trim().length);
+      if (!labelTexts.length) {
+        return;
+      }
+      await copyPlainText(labelTexts.join('\n'));
     });
   }
 
@@ -1981,6 +2037,7 @@ function initBulkProcessing() {
 
 document.addEventListener('DOMContentLoaded', () => {
   attachMediaCheckboxHandler();
+  attachPassageLabelCopyHandler();
   attachModeSwitcher();
   attachDilutionModeSwitcher();
   attachSeedingFormHandler();

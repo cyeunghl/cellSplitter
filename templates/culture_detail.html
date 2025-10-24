@@ -344,6 +344,8 @@
             action="{{ url_for('add_passage', culture_id=culture.id) }}"
             data-passage-form
             data-culture-ended="false"
+            data-culture-name="{{ culture.name }}"
+            data-next-passage="{{ culture.next_passage_number }}"
           >
             <input type="hidden" name="vessel_id" id="passage-vessel-id" />
             <input type="hidden" name="vessels_used" id="passage-vessels-used" />
@@ -365,7 +367,7 @@
                   rows="2"
                   placeholder="Document media formulation"
                   id="media-field"
-                ></textarea>
+                >{% if last_passage and last_passage.media %}{{ last_passage.media }}{% endif %}</textarea>
               </label>
               <label class="checkbox" {% if not last_passage or not last_passage.media %}data-disabled="true"{% endif %}>
                 <input
@@ -373,7 +375,7 @@
                   name="use_previous_media"
                   id="use-previous-media"
                   value="1"
-                  {% if not last_passage or not last_passage.media %}disabled{% endif %}
+                  {% if last_passage and last_passage.media %}checked{% else %}disabled{% endif %}
                   data-media="{{ last_passage.media if last_passage else '' }}"
                 />
                 <span>Use previous passage media</span>
@@ -419,6 +421,7 @@
             </div>
             <div class="form-actions">
               <button class="button primary" type="submit">Save passage</button>
+              <button class="button ghost" type="button" data-copy-passage-label>Copy label</button>
             </div>
           </form>
         {% else %}
