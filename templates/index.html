@@ -281,6 +281,14 @@
               <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">
                 View journal
               </a>
+              <form
+                class="inline-form"
+                method="post"
+                action="{{ url_for('delete_culture', culture_id=culture.id) }}"
+                onsubmit="return confirm('Permanently delete {{ culture.name }}? This cannot be undone.');"
+              >
+                <button class="button danger" type="submit">Delete</button>
+              </form>
             </footer>
           </article>
         {% endfor %}

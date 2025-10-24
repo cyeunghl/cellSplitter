@@ -178,8 +178,8 @@ function fillPassageFormFromSeeding(data, { submit = false } = {}) {
     }
   }
 
-  const cellConcentrationField = passageForm.querySelector('#cell-concentration-field');
-  if (cellConcentrationField) {
+  const cellConcentrationHidden = passageForm.querySelector('#passage-cell-concentration');
+  if (cellConcentrationHidden) {
     let concentrationValue = data.cell_concentration;
     if (data.mode === MODE_DILUTION && data.final_concentration !== undefined) {
       concentrationValue = data.final_concentration;
@@ -188,7 +188,7 @@ function fillPassageFormFromSeeding(data, { submit = false } = {}) {
       (typeof concentrationValue === 'number' && Number.isFinite(concentrationValue)) ||
       (typeof concentrationValue === 'string' && concentrationValue.trim() !== '')
     ) {
-      cellConcentrationField.value = concentrationValue;
+      cellConcentrationHidden.value = concentrationValue;
     }
   }
 

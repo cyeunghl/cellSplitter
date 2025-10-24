@@ -127,7 +127,12 @@
           >
             <input type="hidden" name="vessel_id" id="passage-vessel-id" />
             <input type="hidden" name="vessels_used" id="passage-vessels-used" />
-            <input type="hidden" name="seeded_cells" id="passage-seeded-cells" />
+            <input
+              type="hidden"
+              name="cell_concentration"
+              id="passage-cell-concentration"
+              value="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '' }}"
+            />
             <div class="field-grid">
               <label>
                 <span>Date</span>
@@ -154,13 +159,13 @@
                 <span>Use previous passage media</span>
               </label>
               <label>
-                <span>Cell concentration (cells/mL)</span>
+                <span>Cells seeded (cells)</span>
                 <input
                   type="text"
-                  name="cell_concentration"
-                  id="cell-concentration-field"
-                  placeholder="e.g. 2.5e6"
-                  value="{{ last_passage.cell_concentration if last_passage else '' }}"
+                  name="seeded_cells"
+                  id="passage-seeded-cells"
+                  placeholder="e.g. 1.5e6"
+                  value="{{ '%g' % last_passage.seeded_cells if last_passage and last_passage.seeded_cells is not none else '' }}"
                 />
               </label>
               <label>
@@ -197,6 +202,56 @@
 
       <article class="card">
         <header class="card-header">
+          <h2>Measured yield</h2>
+          <p>Capture harvest details to pre-fill the seeding planner.</p>
+        </header>
+        <form
+          class="card-body form"
+          method="post"
+          action="{{ url_for('record_measurement', culture_id=culture.id) }}"
+          data-measurement-form
+        >
+          <div class="field-grid">
+            <label>
+              <span>Cell concentration (cells/mL)</span>
+              <input
+                type="text"
+                name="measured_cell_concentration"
+                placeholder="e.g. 1.5e6"
+                value="{{ '%g' % culture.measured_cell_concentration if culture.measured_cell_concentration is not none else '' }}"
+              />
+            </label>
+            <label>
+              <span>Cell slurry volume (mL)</span>
+              <input
+                type="text"
+                name="measured_slurry_volume_ml"
+                placeholder="e.g. 8"
+                value="{{ '%g' % culture.measured_slurry_volume_ml if culture.measured_slurry_volume_ml is not none else '' }}"
+              />
+            </label>
+          </div>
+          {% if culture.measured_cells_total %}
+            <p class="form-hint">
+              Estimated total cells: {{ culture.measured_cells_total | format_cells }}
+              {% if culture.measured_slurry_volume_ml %}
+                from {{ culture.measured_slurry_volume_ml | format_volume }} harvested.
+              {% endif %}
+            </p>
+          {% endif %}
+          <div class="form-actions">
+            <button class="button primary" type="submit">Save measurement</button>
+            {% if culture.measured_cell_concentration or culture.measured_slurry_volume_ml %}
+              <button class="button ghost" type="submit" name="clear" value="1" formnovalidate>
+                Clear
+              </button>
+            {% endif %}
+          </div>
+        </form>
+      </article>
+
+      <article class="card">
+        <header class="card-header">
           <h2>Seeding planner</h2>
           <p>Plan seeding toward a target confluency or dilute to a desired concentration.</p>
         </header>
@@ -223,9 +278,16 @@
             <label>
               <span>Vessel</span>
               <select name="vessel_id" required data-required-when="confluency">
-                <option value="">Select a vessel…</option>
+                <option value="" {% if not default_vessel_id %}selected{% endif %} disabled>
+                  Select a vessel…
+                </option>
                 {% for vessel in vessels %}
-                  <option value="{{ vessel.id }}">{{ vessel.name }} ({{ '%g' % vessel.area_cm2 }} cm²)</option>
+                  <option
+                    value="{{ vessel.id }}"
+                    {% if default_vessel_id and vessel.id == default_vessel_id %}selected{% endif %}
+                  >
+                    {{ vessel.name }} ({{ '%g' % vessel.area_cm2 }} cm²)
+                  </option>
                 {% endfor %}
               </select>
             </label>
@@ -332,7 +394,7 @@
             <input
               type="text"
               name="cell_concentration"
-              value="{{ ('%g' % last_passage.cell_concentration) if last_passage and last_passage.cell_concentration else '1.5e6' }}"
+              value="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '1e6' }}"
               placeholder="e.g. 1.5e6"
               required
             />

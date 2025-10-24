@@ -15,8 +15,11 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
   target confluency, time to split, vessel size, and doubling time, or plan dilutions to
   reach a specific concentration and total volume, then push the plan directly into the
   passage log.
+- 📊 **Harvest tracking** – Record measured harvest concentrations and volumes so the
+  seeding planner and passage form always start with the latest suspension data.
 - 📁 **Archive cultures** – Mark cultures as ended to move them into an archived list
-  while preserving full passage history.
+  while preserving full passage history, or permanently delete ended cultures when
+  they are no longer needed.
 - ✏️ **Edit or remove passages** – Correct typos or delete errant entries without touching
   the surrounding history.
 - 🧬 **Doubling-time library** – Preloaded database of common cell lines with editable
@@ -59,6 +62,11 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
   lets you override it for passage-specific behavior. Switch to *Concentration to dilute*
   mode to compute how much cell slurry and media are needed to reach a desired final
   concentration and volume.
+- Cultures default to a T75 flask in the target confluency planner—swap the vessel if you
+  are planning for a different format.
+- Log the measured suspension concentration and total harvest volume in the culture detail
+  view before planning to automatically feed that data into both the seeding planner and
+  passage forms.
 - Cell concentration inputs accept plain numbers as well as shorthand such as `300K`,
   `1.5e6`, or `2.3M` cells/mL.
 - Use the “Use previous passage media” checkbox when logging a passage to keep media
@@ -70,8 +78,8 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 - Need a quick mycoplasma check run? Use the dashboard’s Myco test labels table to copy
   today’s culture/date/CY label text in bulk.
 - End a culture when you are finished working with it to tuck it into the archived list;
-  you can reactivate it later if needed. Active culture cards include a quick “End
-  culture” button, while the culture detail page offers both end and reactivate options.
+  you can reactivate it later if needed, or permanently delete archived cultures from the
+  dashboard when their records are no longer required.
 - Need to fix a mistake? Open any passage entry to edit or delete it without affecting the
   rest of the log.
 - Use the export control atop the dashboard to download active cultures, ended cultures,

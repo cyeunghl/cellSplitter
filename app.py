@@ -68,6 +68,8 @@ class Culture(db.Model):
     start_date = db.Column(db.Date, nullable=False, default=date.today)
     notes = db.Column(db.Text, nullable=True)
     ended_on = db.Column(db.Date, nullable=True)
+    measured_cell_concentration = db.Column(db.Float, nullable=True)
+    measured_slurry_volume_ml = db.Column(db.Float, nullable=True)
 
     cell_line = db.relationship("CellLine", back_populates="cultures")
     passages = db.relationship(
@@ -93,6 +95,16 @@ class Culture(db.Model):
     @property
     def is_active(self) -> bool:
         return self.ended_on is None
+
+    @property
+    def measured_cells_total(self) -> Optional[float]:
+        if (
+            self.measured_cell_concentration
+            and self.measured_slurry_volume_ml
+            and self.measured_slurry_volume_ml > 0
+        ):
+            return self.measured_cell_concentration * self.measured_slurry_volume_ml
+        return None
 
 
 class Passage(db.Model):
@@ -181,6 +193,14 @@ def ensure_columns() -> None:
             connection.execute(text("ALTER TABLE passage ADD COLUMN vessels_used INTEGER"))
         if not has_column("passage", "seeded_cells"):
             connection.execute(text("ALTER TABLE passage ADD COLUMN seeded_cells FLOAT"))
+        if not has_column("culture", "measured_cell_concentration"):
+            connection.execute(
+                text("ALTER TABLE culture ADD COLUMN measured_cell_concentration FLOAT")
+            )
+        if not has_column("culture", "measured_slurry_volume_ml"):
+            connection.execute(
+                text("ALTER TABLE culture ADD COLUMN measured_slurry_volume_ml FLOAT")
+            )
 
 
 def parse_date(value: str | None) -> date:
@@ -265,6 +285,7 @@ def format_significant(value: Optional[float], digits: int = 2) -> Optional[str]
 
 app.jinja_env.filters["format_cells"] = format_cells
 app.jinja_env.filters["format_hours"] = format_hours
+app.jinja_env.filters["format_volume"] = format_volume
 
 
 @app.route("/")
@@ -363,11 +384,22 @@ def view_culture(culture_id: int):
     culture = Culture.query.get_or_404(culture_id)
     vessels = Vessel.query.order_by(Vessel.area_cm2.asc()).all()
     last_passage = culture.latest_passage
+    default_cell_concentration = (
+        culture.measured_cell_concentration
+        or (last_passage.cell_concentration if last_passage and last_passage.cell_concentration else 1e6)
+    )
+    default_vessel_id = None
+    for vessel in vessels:
+        if vessel.name.lower().startswith("t75"):
+            default_vessel_id = vessel.id
+            break
     return render_template(
         "culture_detail.html",
         culture=culture,
         vessels=vessels,
         last_passage=last_passage,
+        default_cell_concentration=default_cell_concentration,
+        default_vessel_id=default_vessel_id,
         today=date.today(),
     )
 
@@ -435,6 +467,43 @@ def add_passage(culture_id: int):
         f"Recorded passage P{passage.passage_number} for culture '{culture.name}'.",
         "success",
     )
+    return redirect(url_for("view_culture", culture_id=culture.id))
+
+
+@app.route("/culture/<int:culture_id>/measurement", methods=["POST"])
+def record_measurement(culture_id: int):
+    culture = Culture.query.get_or_404(culture_id)
+
+    if request.form.get("clear"):
+        culture.measured_cell_concentration = None
+        culture.measured_slurry_volume_ml = None
+        db.session.commit()
+        flash(f"Cleared measured yield details for '{culture.name}'.", "info")
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    concentration = parse_numeric(request.form.get("measured_cell_concentration"))
+    volume_ml = parse_numeric(request.form.get("measured_slurry_volume_ml"))
+
+    culture.measured_cell_concentration = concentration
+    culture.measured_slurry_volume_ml = volume_ml
+
+    db.session.commit()
+
+    if concentration and volume_ml:
+        total_cells = concentration * volume_ml
+        flash(
+            f"Saved measured yield for '{culture.name}': "
+            f"{format_cells(total_cells)} cells in {format_volume(volume_ml)}.",
+            "success",
+        )
+    elif concentration or volume_ml:
+        flash(
+            f"Saved measured yield details for '{culture.name}'. Add both values to compute total cells.",
+            "info",
+        )
+    else:
+        flash(f"No measurement values provided for '{culture.name}'.", "info")
+
     return redirect(url_for("view_culture", culture_id=culture.id))
 
 
@@ -802,6 +871,22 @@ def reactivate_culture(culture_id: int):
 
     flash(f"Culture '{culture.name}' reactivated.", "success")
     return redirect(url_for("view_culture", culture_id=culture.id))
+
+
+@app.route("/culture/<int:culture_id>/delete", methods=["POST"])
+def delete_culture(culture_id: int):
+    culture = Culture.query.get_or_404(culture_id)
+
+    if culture.ended_on is None:
+        flash("End the culture before deleting it permanently.", "error")
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    name = culture.name
+    db.session.delete(culture)
+    db.session.commit()
+
+    flash(f"Culture '{name}' permanently deleted.", "success")
+    return redirect(url_for("index"))
 
 
 @app.route("/passage/<int:passage_id>/edit", methods=["GET", "POST"])
