@@ -55,6 +55,7 @@
                   <th>Cell concentration</th>
                   <th>Doubling time</th>
                   <th>Vessel usage</th>
+                  <th>Measured yield</th>
                   <th>Seeded cells</th>
                   <th>Notes</th>
                   <th class="actions-column">Actions</th>
@@ -79,6 +80,7 @@
                         —
                       {% endif %}
                     </td>
+                    <td>{{ passage.measured_yield_cells | format_cells }}</td>
                     <td>{{ passage.seeded_cells | format_cells }}</td>
                     <td class="wrap">{{ passage.notes or '—' }}</td>
                     <td class="actions">
@@ -111,95 +113,6 @@
 
   <section class="section">
     <div class="grid">
-      <article class="card">
-        <header class="card-header">
-          <h2>Log a new passage</h2>
-          <p>Next passage number: P{{ culture.next_passage_number }}</p>
-        </header>
-        {% if culture.is_active %}
-          <form
-            id="passage-form"
-            class="card-body form"
-            method="post"
-            action="{{ url_for('add_passage', culture_id=culture.id) }}"
-            data-passage-form
-            data-culture-ended="false"
-          >
-            <input type="hidden" name="vessel_id" id="passage-vessel-id" />
-            <input type="hidden" name="vessels_used" id="passage-vessels-used" />
-            <input
-              type="hidden"
-              name="cell_concentration"
-              id="passage-cell-concentration"
-              value="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '' }}"
-            />
-            <div class="field-grid">
-              <label>
-                <span>Date</span>
-                <input type="date" name="date" value="{{ today }}" />
-              </label>
-              <label class="wide">
-                <span>Media</span>
-                <textarea
-                  name="media"
-                  rows="2"
-                  placeholder="Document media formulation"
-                  id="media-field"
-                ></textarea>
-              </label>
-              <label class="checkbox" {% if not last_passage or not last_passage.media %}data-disabled="true"{% endif %}>
-                <input
-                  type="checkbox"
-                  name="use_previous_media"
-                  id="use-previous-media"
-                  value="1"
-                  {% if not last_passage or not last_passage.media %}disabled{% endif %}
-                  data-media="{{ last_passage.media if last_passage else '' }}"
-                />
-                <span>Use previous passage media</span>
-              </label>
-              <label>
-                <span>Cells seeded (cells)</span>
-                <input
-                  type="text"
-                  name="seeded_cells"
-                  id="passage-seeded-cells"
-                  placeholder="e.g. 1.5e6"
-                  value="{{ '%g' % last_passage.seeded_cells if last_passage and last_passage.seeded_cells is not none else '' }}"
-                />
-              </label>
-              <label>
-                <span>Doubling time (hours)</span>
-                <input
-                  type="text"
-                  name="doubling_time_hours"
-                  placeholder="e.g. 22"
-                  value="{{ last_passage.doubling_time_hours if last_passage else culture.cell_line.average_doubling_time }}"
-                />
-              </label>
-              <label class="wide">
-                <span>Notes</span>
-                <textarea
-                  name="notes"
-                  id="notes-field"
-                  rows="2"
-                  placeholder="Observations"
-                ></textarea>
-              </label>
-            </div>
-            <div class="form-actions">
-              <button class="button primary" type="submit">Save passage</button>
-            </div>
-          </form>
-        {% else %}
-          <div class="card-body">
-            <p class="empty-state">
-              This culture has been ended. Reactivate it to log additional passages.
-            </p>
-          </div>
-        {% endif %}
-      </article>
-
       <article class="card">
         <header class="card-header">
           <h2>Measured yield</h2>
@@ -404,6 +317,105 @@
         <div id="seeding-result" class="card-footer muted">
           <p>Enter parameters above and calculate to see seeding guidance.</p>
         </div>
+      </article>
+
+      <article class="card">
+        <header class="card-header">
+          <h2>Log a new passage</h2>
+          <p>Next passage number: P{{ culture.next_passage_number }}</p>
+        </header>
+        {% if culture.is_active %}
+          <form
+            id="passage-form"
+            class="card-body form"
+            method="post"
+            action="{{ url_for('add_passage', culture_id=culture.id) }}"
+            data-passage-form
+            data-culture-ended="false"
+          >
+            <input type="hidden" name="vessel_id" id="passage-vessel-id" />
+            <input type="hidden" name="vessels_used" id="passage-vessels-used" />
+            <input
+              type="hidden"
+              name="cell_concentration"
+              id="passage-cell-concentration"
+              value="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '' }}"
+            />
+            <div class="field-grid">
+              <label>
+                <span>Date</span>
+                <input type="date" name="date" value="{{ today }}" />
+              </label>
+              <label class="wide">
+                <span>Media</span>
+                <textarea
+                  name="media"
+                  rows="2"
+                  placeholder="Document media formulation"
+                  id="media-field"
+                ></textarea>
+              </label>
+              <label class="checkbox" {% if not last_passage or not last_passage.media %}data-disabled="true"{% endif %}>
+                <input
+                  type="checkbox"
+                  name="use_previous_media"
+                  id="use-previous-media"
+                  value="1"
+                  {% if not last_passage or not last_passage.media %}disabled{% endif %}
+                  data-media="{{ last_passage.media if last_passage else '' }}"
+                />
+                <span>Use previous passage media</span>
+              </label>
+              <label>
+                <span>Cells seeded (cells)</span>
+                <input
+                  type="text"
+                  name="seeded_cells"
+                  id="passage-seeded-cells"
+                  placeholder="e.g. 1.5e6"
+                  value="{{ '%g' % last_passage.seeded_cells if last_passage and last_passage.seeded_cells is not none else '' }}"
+                />
+              </label>
+              <label>
+                <span>Measured yield (M cells)</span>
+                <input
+                  type="text"
+                  name="measured_yield_millions"
+                  id="passage-measured-yield"
+                  placeholder="e.g. 24"
+                  value="{{ default_measured_yield_display or '' }}"
+                />
+              </label>
+              <label>
+                <span>Doubling time (hours)</span>
+                <input
+                  type="text"
+                  name="doubling_time_hours"
+                  placeholder="e.g. 22"
+                  value="{{ last_passage.doubling_time_hours if last_passage else culture.cell_line.average_doubling_time }}"
+                />
+              </label>
+              <label class="wide">
+                <span>Notes</span>
+                <textarea
+                  name="notes"
+                  id="notes-field"
+                  rows="2"
+                  placeholder="Observations"
+                ></textarea>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="button primary" type="submit">Save passage</button>
+            </div>
+          </form>
+        {% else %}
+          <div class="card-body">
+            <p class="empty-state">
+              This culture has been ended. Reactivate it to log additional passages.
+            </p>
+          </div>
+        {% endif %}
       </article>
     </div>
   </section>

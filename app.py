@@ -119,6 +119,7 @@ class Passage(db.Model):
     vessel_id = db.Column(db.Integer, db.ForeignKey("vessel.id"), nullable=True)
     vessels_used = db.Column(db.Integer, nullable=True)
     seeded_cells = db.Column(db.Float, nullable=True)
+    measured_yield_cells = db.Column(db.Float, nullable=True)
 
     culture = db.relationship("Culture", back_populates="passages")
     vessel = db.relationship("Vessel")
@@ -193,6 +194,10 @@ def ensure_columns() -> None:
             connection.execute(text("ALTER TABLE passage ADD COLUMN vessels_used INTEGER"))
         if not has_column("passage", "seeded_cells"):
             connection.execute(text("ALTER TABLE passage ADD COLUMN seeded_cells FLOAT"))
+        if not has_column("passage", "measured_yield_cells"):
+            connection.execute(
+                text("ALTER TABLE passage ADD COLUMN measured_yield_cells FLOAT")
+            )
         if not has_column("culture", "measured_cell_concentration"):
             connection.execute(
                 text("ALTER TABLE culture ADD COLUMN measured_cell_concentration FLOAT")
@@ -234,6 +239,33 @@ def parse_numeric(value: str | None) -> Optional[float]:
             return float(cleaned.replace("E", "e"))
         except ValueError:
             return None
+
+
+def parse_millions(value: str | None) -> Optional[float]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+
+    lower_cleaned = cleaned.lower()
+    if lower_cleaned.endswith("cells"):
+        cleaned = cleaned[: -5].strip()
+    elif lower_cleaned.endswith("cell"):
+        cleaned = cleaned[: -4].strip()
+
+    numeric = parse_numeric(cleaned)
+    if numeric is None:
+        return None
+
+    cleaned_upper = cleaned.upper()
+    if cleaned_upper.endswith("M"):
+        return numeric
+    if "E" in cleaned_upper or cleaned_upper.endswith("CELLS"):
+        return numeric
+    if numeric >= 1_000_000:
+        return numeric
+    return numeric * 1_000_000
 
 
 def format_cells(value: Optional[float]) -> str:
@@ -393,6 +425,19 @@ def view_culture(culture_id: int):
         if vessel.name.lower().startswith("t75"):
             default_vessel_id = vessel.id
             break
+
+    default_measured_yield_millions = None
+    if culture.measured_cells_total:
+        default_measured_yield_millions = culture.measured_cells_total / 1_000_000
+    elif last_passage and last_passage.measured_yield_cells:
+        default_measured_yield_millions = last_passage.measured_yield_cells / 1_000_000
+
+    default_measured_yield_display = None
+    if default_measured_yield_millions is not None:
+        formatted = format_significant(default_measured_yield_millions, 3)
+        if formatted is not None:
+            default_measured_yield_display = formatted
+
     return render_template(
         "culture_detail.html",
         culture=culture,
@@ -400,6 +445,7 @@ def view_culture(culture_id: int):
         last_passage=last_passage,
         default_cell_concentration=default_cell_concentration,
         default_vessel_id=default_vessel_id,
+        default_measured_yield_display=default_measured_yield_display,
         today=date.today(),
     )
 
@@ -447,6 +493,7 @@ def add_passage(culture_id: int):
             vessels_used = vessels_used_candidate
 
     seeded_cells = parse_numeric(request.form.get("seeded_cells"))
+    measured_yield_cells = parse_millions(request.form.get("measured_yield_millions"))
 
     passage = Passage(
         culture=culture,
@@ -459,6 +506,7 @@ def add_passage(culture_id: int):
         vessel=vessel,
         vessels_used=vessels_used,
         seeded_cells=seeded_cells,
+        measured_yield_cells=measured_yield_cells,
     )
     db.session.add(passage)
     db.session.commit()
@@ -925,6 +973,9 @@ def edit_passage(passage_id: int):
         passage.vessels_used = vessels_used
 
         passage.seeded_cells = parse_numeric(request.form.get("seeded_cells"))
+        passage.measured_yield_cells = parse_millions(
+            request.form.get("measured_yield_millions")
+        )
 
         db.session.commit()
         flash(

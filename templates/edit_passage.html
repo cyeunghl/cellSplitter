@@ -78,6 +78,15 @@
                 placeholder="e.g. 2e6"
               />
             </label>
+            <label>
+              <span>Measured yield (M cells)</span>
+              <input
+                type="text"
+                name="measured_yield_millions"
+                value="{{ '%g' % (passage.measured_yield_cells / 1000000.0) if passage.measured_yield_cells else '' }}"
+                placeholder="e.g. 24"
+              />
+            </label>
           </div>
           <label class="wide">
             <span>Notes</span>
