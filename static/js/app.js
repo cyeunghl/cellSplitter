@@ -1362,8 +1362,7 @@ function initBulkProcessing() {
       cellsDisplay = culture.latest_seeded_display;
     }
     lines.push(`Cells seeded: ${cellsDisplay}`);
-    return lines.join('
-');
+    return lines.join('\n');
   };
 
   const renderLabelTable = (ids) => {
