@@ -11,6 +11,22 @@
       </div>
       {% if active_cultures or ended_cultures %}
         <div class="header-actions">
+          <form
+            class="inline-form threshold-form"
+            method="post"
+            action="{{ url_for('update_passage_threshold') }}"
+          >
+            <input
+              type="number"
+              name="passage_warning_threshold"
+              value="{{ passage_warning_threshold }}"
+              min="1"
+              step="1"
+              aria-label="Passage reminder threshold"
+              class="input-small"
+            />
+            <button class="button secondary" type="submit">Set reminder</button>
+          </form>
           <form class="inline-form" method="get" action="{{ url_for('export_cultures') }}">
             <select
               id="export-status"
@@ -39,7 +55,14 @@
           </thead>
           <tbody>
             {% for culture in active_cultures %}
-              <tr>
+              {% set row_classes = [] %}
+              {% if culture.is_stale %}
+                {% set row_classes = row_classes + ['stale-row'] %}
+              {% endif %}
+              {% if culture.latest_passage and culture.latest_passage.passage_number > culture.passage_warning_threshold %}
+                {% set row_classes = row_classes + ['passage-warning-row'] %}
+              {% endif %}
+              <tr class="{{ ' '.join(row_classes) }}">
                 <td>
                   <strong>{{ culture.name }}</strong>
                   <p class="meta">
@@ -55,8 +78,15 @@
                   {% else %}
                     —
                   {% endif %}
-                  {% if culture.latest_passage and culture.latest_passage.passage_number > 20 %}
-                    <p class="warning-text">Time to refresh and thaw new cell line</p>
+                  {% if culture.latest_passage and culture.latest_passage.passage_number > culture.passage_warning_threshold %}
+                    <p class="warning-text">
+                      Exceeds reminder threshold (P{{ culture.passage_warning_threshold }}).
+                    </p>
+                  {% endif %}
+                  {% if culture.is_stale %}
+                    <p class="warning-text">
+                      Last handled {{ culture.days_since_last_passage }} day{% if culture.days_since_last_passage != 1 %}s{% endif %} ago.
+                    </p>
                   {% endif %}
                 </td>
                 <td class="actions">
@@ -66,9 +96,22 @@
                   <form
                     class="inline-form"
                     method="post"
+                    action="{{ url_for('refresh_media', culture_id=culture.id) }}"
+                  >
+                    <button class="button secondary" type="submit">Refresh media</button>
+                  </form>
+                  <form
+                    class="inline-form"
+                    method="post"
                     action="{{ url_for('end_culture', culture_id=culture.id) }}"
                   >
                     <input type="hidden" name="ended_on" value="{{ today }}" />
+                    <input
+                      type="text"
+                      name="end_reason"
+                      placeholder="Reason"
+                      class="input-inline"
+                    />
                     <button class="button danger" type="submit">End culture</button>
                   </form>
                 </td>
@@ -184,6 +227,7 @@
                       <th scope="col">Culture</th>
                       <th scope="col">Pre-split confluence (%)</th>
                       <th scope="col">Measured concentration (cells/mL)</th>
+                      <th scope="col">Viability (%)</th>
                       <th scope="col">Slurry volume (mL)</th>
                     </tr>
                   </thead>
@@ -383,6 +427,12 @@
                     {% endif %}
                   </dd>
                 </div>
+                {% if culture.end_reason %}
+                  <div>
+                    <dt>Reason</dt>
+                    <dd>{{ culture.end_reason }}</dd>
+                  </div>
+                {% endif %}
               </dl>
             </div>
             <footer class="card-footer">

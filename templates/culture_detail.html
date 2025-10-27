@@ -17,6 +17,9 @@
         </p>
         {% if culture.ended_on %}
           <p class="status ended">Ended on {{ culture.ended_on.strftime('%Y-%m-%d') }}</p>
+          {% if culture.end_reason %}
+            <p class="status note">Reason: {{ culture.end_reason }}</p>
+          {% endif %}
         {% endif %}
       </div>
       <div class="header-actions">
@@ -25,8 +28,17 @@
             <button class="button secondary" type="submit">Reactivate culture</button>
           </form>
         {% else %}
+          <form method="post" action="{{ url_for('refresh_media', culture_id=culture.id) }}">
+            <button class="button secondary" type="submit">Refresh media</button>
+          </form>
           <form method="post" action="{{ url_for('end_culture', culture_id=culture.id) }}">
             <input type="hidden" name="ended_on" value="{{ today }}" />
+            <input
+              type="text"
+              name="end_reason"
+              placeholder="Reason for ending"
+              class="input-inline"
+            />
             <button class="button danger" type="submit">End culture</button>
           </form>
         {% endif %}
@@ -57,6 +69,7 @@
                   <th>Vessel usage</th>
                   <th>Pre-split confluence</th>
                   <th>Measured yield</th>
+                  <th>Viability</th>
                   <th>Seeded cells</th>
                   <th>Notes</th>
                   <th class="actions-column">Actions</th>
@@ -89,6 +102,13 @@
                       {% endif %}
                     </td>
                     <td>{{ passage.measured_yield_cells | format_cells }}</td>
+                    <td>
+                      {% if passage.measured_viability_percent is not none %}
+                        {{ passage.measured_viability_percent }}%
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
                     <td>{{ passage.seeded_cells | format_cells }}</td>
                     <td class="wrap">{{ passage.notes or '—' }}</td>
                     <td class="actions">
@@ -237,6 +257,18 @@
                     value="{{ '%g' % culture.measured_slurry_volume_ml if culture.measured_slurry_volume_ml is not none else '' }}"
                   />
                 </label>
+                <label>
+                  <span>Viability (%)</span>
+                  <input
+                    type="number"
+                    name="measured_viability_percent"
+                    min="0"
+                    max="100"
+                    step="1"
+                    placeholder="e.g. 95"
+                    value="{{ culture.measured_viability_percent if culture.measured_viability_percent is not none else '' }}"
+                  />
+                </label>
               </div>
               {% if culture.measured_cells_total %}
                 <p class="form-hint">
@@ -273,20 +305,105 @@
           data-next-passage="{{ culture.next_passage_number }}"
           data-today="{{ today.isoformat() }}"
         >
-          <div class="mode-toggle" role="radiogroup" aria-label="Calculation mode">
+          <div class="mode-toggle" role="radiogroup" aria-label="Seeding workflow">
             <label>
-              <input type="radio" name="mode" value="confluency" checked />
-              <span>Target confluency</span>
+              <input type="radio" name="operation" value="split" checked />
+              <span>Split</span>
             </label>
             <label>
-              <input type="radio" name="mode" value="dilution" />
-              <span>Concentration to dilute</span>
+              <input type="radio" name="operation" value="seed_split" />
+              <span>Seed &amp; split</span>
             </label>
           </div>
-          <div data-mode-section="confluency">
+          <section class="planner-subsection" data-seed-section hidden>
+            <header>
+              <h3>Seed portion</h3>
+              <p class="form-hint">Dilute part of the harvest for a specific purpose.</p>
+            </header>
+            <div class="mode-toggle compact" role="radiogroup" aria-label="Dilution input mode">
+              <label>
+                <input type="radio" name="seed_dilution_mode" value="concentration" checked />
+                <span>By final concentration</span>
+              </label>
+              <label>
+                <input type="radio" name="seed_dilution_mode" value="cells" />
+                <span>By cells and volume</span>
+              </label>
+            </div>
+            <div data-seed-dilution-section="concentration">
+              <div class="field-grid">
+                <label>
+                  <span>Final concentration (cells/mL)</span>
+                  <input
+                    type="text"
+                    name="seed_final_concentration"
+                    value="5e5"
+                    placeholder="e.g. 5e5"
+                    data-required-operation="seed_split"
+                    data-required-seed-mode="concentration"
+                  />
+                </label>
+                <label>
+                  <span>Total volume (mL)</span>
+                  <input
+                    type="text"
+                    name="seed_total_volume_ml"
+                    value="20"
+                    placeholder="e.g. 12"
+                    data-required-operation="seed_split"
+                    data-required-seed-mode="concentration"
+                  />
+                </label>
+              </div>
+            </div>
+            <div data-seed-dilution-section="cells" hidden>
+              <div class="field-grid">
+                <label>
+                  <span>Number of cells to seed</span>
+                  <input
+                    type="text"
+                    name="seed_cells_to_seed"
+                    placeholder="e.g. 1.5e6"
+                    data-required-operation="seed_split"
+                    data-required-seed-mode="cells"
+                  />
+                </label>
+                <label>
+                  <span>Volume for those cells (mL)</span>
+                  <input
+                    type="text"
+                    name="seed_volume_per_seed_ml"
+                    placeholder="e.g. 2"
+                    data-required-operation="seed_split"
+                    data-required-seed-mode="cells"
+                  />
+                </label>
+                <label>
+                  <span>Total volume (mL)</span>
+                  <input
+                    type="text"
+                    name="seed_total_volume_ml"
+                    value="20"
+                    placeholder="e.g. 12"
+                    data-required-operation="seed_split"
+                    data-required-seed-mode="cells"
+                  />
+                </label>
+              </div>
+            </div>
+            <label>
+              <span>Purpose</span>
+              <input type="text" name="seed_purpose" placeholder="e.g. Myco testing" />
+            </label>
+            <p class="form-hint">Volumes are entered in mL. Results switch to uL when below 0.01 mL.</p>
+          </section>
+          <section class="planner-subsection" data-target-section>
+            <header>
+              <h3 data-target-heading>Split culture</h3>
+            </header>
             <label>
               <span>Vessel</span>
-              <select name="vessel_id" required data-required-when="confluency">
+              <select name="vessel_id" required data-required-operation="split seed_split">
                 <option value="" {% if not default_vessel_id %}selected{% endif %} disabled>
                   Select a vessel…
                 </option>
@@ -303,11 +420,25 @@
             <div class="field-grid">
               <label>
                 <span>Target confluency (%)</span>
-                <input type="number" name="target_confluency" value="80" min="1" max="100" />
+                <input
+                  type="number"
+                  name="target_confluency"
+                  value="80"
+                  min="1"
+                  max="100"
+                  data-required-operation="split seed_split"
+                />
               </label>
               <label>
                 <span>Days until split</span>
-                <input type="number" name="target_days" value="3" min="0" step="0.5" />
+                <input
+                  type="number"
+                  name="target_days"
+                  value="3"
+                  min="0"
+                  step="0.5"
+                  data-required-operation="split seed_split"
+                />
               </label>
               <label>
                 <span>Additional hours</span>
@@ -315,7 +446,14 @@
               </label>
               <label>
                 <span>Number of vessels</span>
-                <input type="number" name="vessels_used" value="1" min="1" step="1" />
+                <input
+                  type="number"
+                  name="vessels_used"
+                  value="1"
+                  min="1"
+                  step="1"
+                  data-required-operation="split seed_split"
+                />
               </label>
             </div>
             <label>
@@ -326,78 +464,7 @@
                 placeholder="Default: {{ culture.cell_line.display_doubling_time() }}"
               />
             </label>
-          </div>
-          <div data-mode-section="dilution" hidden>
-            <div class="mode-toggle" role="radiogroup" aria-label="Dilution input mode">
-              <label>
-                <input type="radio" name="dilution_input_mode" value="concentration" checked />
-                <span>By final concentration</span>
-              </label>
-              <label>
-                <input type="radio" name="dilution_input_mode" value="cells" />
-                <span>By cells and volume</span>
-              </label>
-            </div>
-            <div data-dilution-section="concentration">
-              <div class="field-grid">
-                <label>
-                  <span>Final concentration (cells/mL)</span>
-                  <input
-                    type="text"
-                    name="final_concentration"
-                    value="5e5"
-                    placeholder="e.g. 5e5"
-                    data-required-when-dilution="concentration"
-                  />
-                </label>
-                <label>
-                  <span>Total volume (mL)</span>
-                  <input
-                    type="text"
-                    name="total_volume_ml"
-                    value="20"
-                    placeholder="e.g. 12"
-                    data-required-when-dilution="concentration"
-                  />
-                </label>
-              </div>
-            </div>
-            <div data-dilution-section="cells" hidden>
-              <div class="field-grid">
-                <label>
-                  <span>Number of cells to seed</span>
-                  <input
-                    type="text"
-                    name="cells_to_seed"
-                    placeholder="e.g. 1.5e6"
-                    data-required-when-dilution="cells"
-                  />
-                </label>
-                <label>
-                  <span>Volume for those cells (mL)</span>
-                  <input
-                    type="text"
-                    name="volume_per_seed_ml"
-                    placeholder="e.g. 2"
-                    data-required-when-dilution="cells"
-                  />
-                </label>
-                <label>
-                  <span>Total volume (mL)</span>
-                  <input
-                    type="text"
-                    name="total_volume_ml"
-                    value="20"
-                    placeholder="e.g. 12"
-                    data-required-when-dilution="cells"
-                  />
-                </label>
-              </div>
-            </div>
-            <p class="form-hint">
-              Volumes are entered in mL. Results automatically switch to µL when below 0.01 mL.
-            </p>
-          </div>
+          </section>
           <label>
             <span>Cell concentration (cells/mL)</span>
             <input
@@ -408,7 +475,7 @@
               required
             />
           </label>
-          <button class="button primary" type="submit">Calculate seeding</button>
+          <button class="button primary" type="submit">Calculate plan</button>
         </form>
         <div id="seeding-result" class="card-footer muted">
           <p>Enter parameters above and calculate to see seeding guidance.</p>
@@ -431,8 +498,6 @@
             data-culture-name="{{ culture.name }}"
             data-next-passage="{{ culture.next_passage_number }}"
           >
-            <input type="hidden" name="vessel_id" id="passage-vessel-id" />
-            <input type="hidden" name="vessels_used" id="passage-vessels-used" />
             <input
               type="hidden"
               name="cell_concentration"
@@ -443,6 +508,26 @@
               <label>
                 <span>Date</span>
                 <input type="date" name="date" value="{{ today }}" />
+              </label>
+              <label>
+                <span>Vessel</span>
+                <select name="vessel_id" id="passage-vessel-id">
+                  <option value="">Select a vessel…</option>
+                  {% for vessel in vessels %}
+                    <option value="{{ vessel.id }}">{{ vessel.name }} ({{ '%g' % vessel.area_cm2 }} cm²)</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>
+                <span>Number of vessels</span>
+                <input
+                  type="number"
+                  name="vessels_used"
+                  id="passage-vessels-used"
+                  min="1"
+                  step="1"
+                  placeholder="e.g. 1"
+                />
               </label>
               <label class="wide">
                 <span>Media</span>
@@ -482,6 +567,19 @@
                   id="passage-measured-yield"
                   placeholder="e.g. 24"
                   value="{{ default_measured_yield_display or '' }}"
+                />
+              </label>
+              <label>
+                <span>Viability (%)</span>
+                <input
+                  type="number"
+                  name="measured_viability_percent"
+                  id="passage-measured-viability"
+                  min="0"
+                  max="100"
+                  step="1"
+                  placeholder="e.g. 95"
+                  value="{{ default_viability_percent if default_viability_percent is not none else '' }}"
                 />
               </label>
               <label>
