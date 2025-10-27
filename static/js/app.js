@@ -188,6 +188,65 @@ function buildSeedingSummary(data) {
   return segments.join('\n');
 }
 
+function attachHarvestTabs() {
+  const tabContainer = document.querySelector('[data-harvest-tabs]');
+  if (!tabContainer) {
+    return;
+  }
+  const root = tabContainer.closest('[data-harvest-container]') || tabContainer.parentElement;
+  if (!root) {
+    return;
+  }
+  const tabs = Array.from(tabContainer.querySelectorAll('[data-harvest-tab]'));
+  if (!tabs.length) {
+    return;
+  }
+  const sections = new Map();
+  tabs.forEach((tab) => {
+    const target = tab.dataset.harvestTab;
+    if (!target) {
+      return;
+    }
+    const section = root.querySelector(`[data-harvest-section="${target}"]`);
+    if (section) {
+      sections.set(target, section);
+    }
+  });
+  if (!sections.size) {
+    return;
+  }
+
+  const setActive = (targetName) => {
+    let resolved = targetName;
+    if (!resolved || !sections.has(resolved)) {
+      resolved = tabs[0]?.dataset.harvestTab;
+    }
+    if (!resolved || !sections.has(resolved)) {
+      return;
+    }
+    tabs.forEach((tab) => {
+      const isActive = tab.dataset.harvestTab === resolved;
+      tab.classList.toggle('is-active', isActive);
+      tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      tab.setAttribute('tabindex', isActive ? '0' : '-1');
+    });
+    sections.forEach((section, key) => {
+      const isActive = key === resolved;
+      section.hidden = !isActive;
+      section.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+    });
+  };
+
+  const defaultTab = tabContainer.dataset.defaultTab || tabs[0]?.dataset.harvestTab;
+  setActive(defaultTab);
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      setActive(tab.dataset.harvestTab);
+    });
+  });
+}
+
 function attachMediaCheckboxHandler() {
   const checkbox = document.querySelector('#use-previous-media');
   const mediaField = document.querySelector('#media-field');
@@ -1009,6 +1068,23 @@ function initBulkProcessing() {
         cultureCell.appendChild(vesselMeta);
       }
 
+      const confluenceCell = row.insertCell();
+      const confluenceLabel = document.createElement('label');
+      const confluenceSpan = document.createElement('span');
+      confluenceSpan.textContent = 'Pre-split confluence (%)';
+      confluenceLabel.appendChild(confluenceSpan);
+      const confluenceInput = document.createElement('input');
+      confluenceInput.type = 'number';
+      confluenceInput.min = '0';
+      confluenceInput.max = '100';
+      confluenceInput.step = '1';
+      confluenceInput.className = 'bulk-harvest-confluence';
+      if (culture.pre_split_confluence_percent != null) {
+        confluenceInput.value = String(culture.pre_split_confluence_percent);
+      }
+      confluenceLabel.appendChild(confluenceInput);
+      confluenceCell.appendChild(confluenceLabel);
+
       const concCell = row.insertCell();
       const concLabel = document.createElement('label');
       const concSpan = document.createElement('span');
@@ -1782,6 +1858,9 @@ function initBulkProcessing() {
         if (record.measured_slurry_volume_ml != null) {
           culture.default_slurry_volume_ml = record.measured_slurry_volume_ml;
         }
+        if (Object.prototype.hasOwnProperty.call(record, 'pre_split_confluence_percent')) {
+          culture.pre_split_confluence_percent = record.pre_split_confluence_percent;
+        }
       }
     });
   };
@@ -1839,6 +1918,7 @@ function initBulkProcessing() {
         if (record.measured_slurry_volume_ml != null) {
           culture.default_slurry_volume_ml = record.measured_slurry_volume_ml;
         }
+        culture.pre_split_confluence_percent = null;
       }
     });
   };
@@ -1935,10 +2015,36 @@ function initBulkProcessing() {
         const name = culture ? culture.name : `Culture ${id}`;
         const concInput = row.querySelector('.bulk-harvest-concentration');
         const volInput = row.querySelector('.bulk-harvest-volume');
+        const confluenceInput = row.querySelector('.bulk-harvest-confluence');
         const concValue = concInput ? concInput.value.trim() : '';
         const volValue = volInput ? volInput.value.trim() : '';
+        const confluenceValue = confluenceInput ? confluenceInput.value.trim() : '';
         const concNumber = parseNumericInput(concValue);
         const volNumber = parseNumericInput(volValue);
+        let confluenceRounded = null;
+        if (confluenceValue) {
+          const confluenceNumber = parseNumericInput(confluenceValue);
+          if (confluenceNumber === null) {
+            hasError = true;
+            showStatus(
+              harvestStatus,
+              `Enter a valid pre-split confluence for ${name}.`,
+              'error'
+            );
+            return;
+          }
+          const rounded = Math.round(confluenceNumber);
+          if (rounded < 0 || rounded > 100) {
+            hasError = true;
+            showStatus(
+              harvestStatus,
+              `Pre-split confluence for ${name} should be between 0 and 100%.`,
+              'error'
+            );
+            return;
+          }
+          confluenceRounded = rounded;
+        }
         if (!concValue || concNumber === null || concNumber <= 0) {
           hasError = true;
           showStatus(
@@ -1953,11 +2059,15 @@ function initBulkProcessing() {
           showStatus(harvestStatus, `Enter a valid slurry volume for ${name}.`, 'error');
           return;
         }
-        entries.push({
+        const entry = {
           culture_id: id,
           measured_cell_concentration: concNumber,
           measured_slurry_volume_ml: volNumber,
-        });
+        };
+        if (confluenceRounded !== null) {
+          entry.pre_split_confluence_percent = confluenceRounded;
+        }
+        entries.push(entry);
       });
       if (hasError || !entries.length) {
         return;
@@ -2060,6 +2170,7 @@ function initBulkProcessing() {
 
 
 document.addEventListener('DOMContentLoaded', () => {
+  attachHarvestTabs();
   attachMediaCheckboxHandler();
   attachPassageLabelCopyHandler();
   attachModeSwitcher();

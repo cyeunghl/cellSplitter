@@ -658,6 +658,13 @@ def add_passage(culture_id: int):
                 return redirect(url_for("view_culture", culture_id=culture.id))
             pre_split_value = rounded
 
+    pre_split_for_new = None
+    if pre_split_value is not None:
+        if last_passage is not None:
+            last_passage.pre_split_confluence_percent = pre_split_value
+        else:
+            pre_split_for_new = pre_split_value
+
     passage = Passage(
         culture=culture,
         passage_number=culture.next_passage_number,
@@ -670,7 +677,7 @@ def add_passage(culture_id: int):
         vessels_used=vessels_used,
         seeded_cells=seeded_cells,
         measured_yield_cells=measured_yield_cells,
-        pre_split_confluence_percent=pre_split_value,
+        pre_split_confluence_percent=pre_split_for_new,
     )
     db.session.add(passage)
 
@@ -724,9 +731,12 @@ def record_measurement(culture_id: int):
 @app.route("/culture/<int:culture_id>/confluence", methods=["POST"])
 def record_confluence(culture_id: int):
     culture = Culture.query.get_or_404(culture_id)
+    latest_passage = culture.latest_passage
 
     if request.form.get("clear"):
         culture.pre_split_confluence_percent = None
+        if latest_passage is not None:
+            latest_passage.pre_split_confluence_percent = None
         db.session.commit()
         flash(f"Cleared confluence entry for '{culture.name}'.", "info")
         return redirect(url_for("view_culture", culture_id=culture.id))
@@ -752,6 +762,8 @@ def record_confluence(culture_id: int):
         return redirect(url_for("view_culture", culture_id=culture.id))
 
     culture.pre_split_confluence_percent = rounded
+    if latest_passage is not None:
+        latest_passage.pre_split_confluence_percent = rounded
     db.session.commit()
 
     flash(
@@ -1045,6 +1057,42 @@ def record_bulk_harvest():
 
         measured_concentration = parse_numeric(entry.get("measured_cell_concentration"))
         measured_volume = parse_numeric(entry.get("measured_slurry_volume_ml"))
+        pre_split_value: Optional[int] = None
+
+        pre_split_raw = entry.get("pre_split_confluence_percent")
+        if isinstance(pre_split_raw, str):
+            pre_split_candidate = pre_split_raw.strip()
+        else:
+            pre_split_candidate = pre_split_raw
+        if pre_split_candidate not in (None, ""):
+            numeric = parse_numeric(pre_split_candidate)
+            if numeric is None:
+                db.session.rollback()
+                return (
+                    jsonify(
+                        {
+                            "error": (
+                                f"Enter a valid pre-split confluency for culture '{culture.name}'."
+                            )
+                        }
+                    ),
+                    400,
+                )
+            rounded = int(round(numeric))
+            if rounded < 0 or rounded > 100:
+                db.session.rollback()
+                return (
+                    jsonify(
+                        {
+                            "error": (
+                                "Confluency should be between 0 and 100% for "
+                                f"culture '{culture.name}'."
+                            )
+                        }
+                    ),
+                    400,
+                )
+            pre_split_value = rounded
 
         if measured_concentration is None or measured_concentration <= 0:
             db.session.rollback()
@@ -1069,6 +1117,11 @@ def record_bulk_harvest():
 
         culture.measured_cell_concentration = measured_concentration
         culture.measured_slurry_volume_ml = measured_volume
+        if pre_split_value is not None:
+            culture.pre_split_confluence_percent = pre_split_value
+            latest_passage = culture.latest_passage
+            if latest_passage is not None:
+                latest_passage.pre_split_confluence_percent = pre_split_value
 
         measured_yield_cells = measured_concentration * measured_volume
 
@@ -1080,6 +1133,7 @@ def record_bulk_harvest():
                 "measured_yield_cells": measured_yield_cells,
                 "measured_yield_millions": measured_yield_cells / 1_000_000,
                 "measured_yield_display": format_cells(measured_yield_cells),
+                "pre_split_confluence_percent": pre_split_value,
             }
         )
 
@@ -1142,6 +1196,8 @@ def create_bulk_passages():
                 db.session.rollback()
                 return jsonify({"error": "Confluency should be between 0 and 100%."}), 400
             pre_split_confluence_value = rounded
+        elif culture.pre_split_confluence_percent is not None:
+            pre_split_confluence_value = culture.pre_split_confluence_percent
 
         if entry.get("use_previous_media") and last_passage:
             media = last_passage.media
@@ -1195,6 +1251,13 @@ def create_bulk_passages():
                     * culture.measured_slurry_volume_ml
                 )
 
+        pre_split_for_new = None
+        if pre_split_confluence_value is not None:
+            if last_passage is not None:
+                last_passage.pre_split_confluence_percent = pre_split_confluence_value
+            else:
+                pre_split_for_new = pre_split_confluence_value
+
         passage = Passage(
             culture=culture,
             passage_number=passage_number,
@@ -1207,7 +1270,7 @@ def create_bulk_passages():
             vessels_used=vessels_used,
             seeded_cells=seeded_cells,
             measured_yield_cells=measured_yield_cells,
-            pre_split_confluence_percent=pre_split_confluence_value,
+            pre_split_confluence_percent=pre_split_for_new,
         )
         db.session.add(passage)
 
