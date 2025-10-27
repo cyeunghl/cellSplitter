@@ -55,6 +55,7 @@
                   <th>Cell concentration</th>
                   <th>Doubling time</th>
                   <th>Vessel usage</th>
+                  <th>Pre-split confluence</th>
                   <th>Measured yield</th>
                   <th>Seeded cells</th>
                   <th>Notes</th>
@@ -76,6 +77,13 @@
                         {% if passage.vessel.area_cm2 %}
                           ({{ '%g' % passage.vessel.area_cm2 }} cm²)
                         {% endif %}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if passage.pre_split_confluence_percent is not none %}
+                        {{ passage.pre_split_confluence_percent }}%
                       {% else %}
                         —
                       {% endif %}
@@ -125,6 +133,40 @@
 
   <section class="section">
     <div class="grid">
+      <article class="card">
+        <header class="card-header">
+          <h2>Pre-split confluency</h2>
+          <p>Record the observed confluence before harvesting.</p>
+        </header>
+        <form
+          class="card-body form"
+          method="post"
+          action="{{ url_for('record_confluence', culture_id=culture.id) }}"
+        >
+          <label>
+            <span>Confluence (%)</span>
+            <input
+              type="number"
+              name="pre_split_confluence_percent"
+              min="0"
+              max="100"
+              step="1"
+              value="{{ default_pre_split_confluence if default_pre_split_confluence is not none else '' }}"
+              placeholder="e.g. 80"
+              required
+            />
+          </label>
+          <div class="form-actions">
+            <button class="button primary" type="submit">Save confluence</button>
+            {% if default_pre_split_confluence is not none %}
+              <button class="button ghost" type="submit" name="clear" value="1" formnovalidate>
+                Clear
+              </button>
+            {% endif %}
+          </div>
+        </form>
+      </article>
+
       <article class="card">
         <header class="card-header">
           <h2>Measured yield</h2>
@@ -398,6 +440,19 @@
                   id="passage-measured-yield"
                   placeholder="e.g. 24"
                   value="{{ default_measured_yield_display or '' }}"
+                />
+              </label>
+              <label>
+                <span>Pre-split confluence (%)</span>
+                <input
+                  type="number"
+                  name="pre_split_confluence_percent"
+                  id="passage-pre-split-confluence"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="{{ default_pre_split_confluence if default_pre_split_confluence is not none else '' }}"
+                  placeholder="e.g. 80"
                 />
               </label>
               <label>

@@ -17,6 +17,8 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
   passage log.
 - 📊 **Harvest tracking** – Record measured harvest concentrations and volumes so the
   seeding planner and passage form always start with the latest suspension data.
+- 🌱 **Pre-split confluency** – Capture the observed confluence before harvesting so the
+  next passage form and history both reflect how dense the culture was.
 - 📁 **Archive cultures** – Mark cultures as ended to move them into an archived list
   while preserving full passage history, or permanently delete ended cultures when
   they are no longer needed.
@@ -67,6 +69,8 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 - Log the measured suspension concentration and total harvest volume in the culture detail
   view before planning to automatically feed that data into both the seeding planner and
   passage forms.
+- Record the pre-split confluency just before harvest—the value auto-fills the passage form
+  and is saved with the resulting passage entry for future reference.
 - Cell concentration inputs accept plain numbers as well as shorthand such as `300K`,
   `1.5e6`, or `2.3M` cells/mL.
 - Use the “Use previous passage media” checkbox when logging a passage to keep media

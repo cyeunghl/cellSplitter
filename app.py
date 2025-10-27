@@ -109,6 +109,7 @@ class Culture(db.Model):
     ended_on = db.Column(db.Date, nullable=True)
     measured_cell_concentration = db.Column(db.Float, nullable=True)
     measured_slurry_volume_ml = db.Column(db.Float, nullable=True)
+    pre_split_confluence_percent = db.Column(db.Integer, nullable=True)
 
     cell_line = db.relationship("CellLine", back_populates="cultures")
     passages = db.relationship(
@@ -159,6 +160,7 @@ class Passage(db.Model):
     vessels_used = db.Column(db.Integer, nullable=True)
     seeded_cells = db.Column(db.Float, nullable=True)
     measured_yield_cells = db.Column(db.Float, nullable=True)
+    pre_split_confluence_percent = db.Column(db.Integer, nullable=True)
 
     culture = db.relationship("Culture", back_populates="passages")
     vessel = db.relationship("Vessel")
@@ -244,6 +246,14 @@ def ensure_columns() -> None:
         if not has_column("culture", "measured_slurry_volume_ml"):
             connection.execute(
                 text("ALTER TABLE culture ADD COLUMN measured_slurry_volume_ml FLOAT")
+            )
+        if not has_column("culture", "pre_split_confluence_percent"):
+            connection.execute(
+                text("ALTER TABLE culture ADD COLUMN pre_split_confluence_percent INTEGER")
+            )
+        if not has_column("passage", "pre_split_confluence_percent"):
+            connection.execute(
+                text("ALTER TABLE passage ADD COLUMN pre_split_confluence_percent INTEGER")
             )
 
 
@@ -450,6 +460,7 @@ def index():
             "measured_yield_millions": measured_yield_millions,
             "latest_vessel_name": latest_vessel_name,
             "default_slurry_volume_ml": default_slurry_volume_ml,
+            "pre_split_confluence_percent": culture.pre_split_confluence_percent,
         }
         bulk_culture_payload.append(culture_payload)
 
@@ -583,6 +594,7 @@ def view_culture(culture_id: int):
         default_cell_concentration=default_cell_concentration,
         default_vessel_id=default_vessel_id,
         default_measured_yield_display=default_measured_yield_display,
+        default_pre_split_confluence=culture.pre_split_confluence_percent,
         today=date.today(),
     )
 
@@ -631,6 +643,20 @@ def add_passage(culture_id: int):
 
     seeded_cells = parse_numeric(request.form.get("seeded_cells"))
     measured_yield_cells = parse_millions(request.form.get("measured_yield_millions"))
+    pre_split_confluence = request.form.get("pre_split_confluence_percent")
+    pre_split_value: Optional[int] = None
+    if pre_split_confluence not in (None, ""):
+        cleaned = pre_split_confluence.strip()
+        if cleaned:
+            numeric = parse_numeric(cleaned)
+            if numeric is None:
+                flash("Enter a valid pre-split confluency between 0 and 100%.", "error")
+                return redirect(url_for("view_culture", culture_id=culture.id))
+            rounded = int(round(numeric))
+            if rounded < 0 or rounded > 100:
+                flash("Confluency should be between 0 and 100%.", "error")
+                return redirect(url_for("view_culture", culture_id=culture.id))
+            pre_split_value = rounded
 
     passage = Passage(
         culture=culture,
@@ -644,8 +670,11 @@ def add_passage(culture_id: int):
         vessels_used=vessels_used,
         seeded_cells=seeded_cells,
         measured_yield_cells=measured_yield_cells,
+        pre_split_confluence_percent=pre_split_value,
     )
     db.session.add(passage)
+
+    culture.pre_split_confluence_percent = None
     db.session.commit()
 
     flash(
@@ -689,6 +718,46 @@ def record_measurement(culture_id: int):
     else:
         flash(f"No measurement values provided for '{culture.name}'.", "info")
 
+    return redirect(url_for("view_culture", culture_id=culture.id))
+
+
+@app.route("/culture/<int:culture_id>/confluence", methods=["POST"])
+def record_confluence(culture_id: int):
+    culture = Culture.query.get_or_404(culture_id)
+
+    if request.form.get("clear"):
+        culture.pre_split_confluence_percent = None
+        db.session.commit()
+        flash(f"Cleared confluence entry for '{culture.name}'.", "info")
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    raw_value = request.form.get("pre_split_confluence_percent")
+    if raw_value in (None, ""):
+        flash("Enter a confluency percentage before saving.", "error")
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    cleaned = raw_value.strip()
+    if not cleaned:
+        flash("Enter a confluency percentage before saving.", "error")
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    numeric = parse_numeric(cleaned)
+    if numeric is None:
+        flash("Enter a valid confluency percentage (0–100).", "error")
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    rounded = int(round(numeric))
+    if rounded < 0 or rounded > 100:
+        flash("Confluency should be between 0 and 100%.", "error")
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    culture.pre_split_confluence_percent = rounded
+    db.session.commit()
+
+    flash(
+        f"Recorded pre-split confluency of {rounded}% for '{culture.name}'.",
+        "success",
+    )
     return redirect(url_for("view_culture", culture_id=culture.id))
 
 
@@ -1059,6 +1128,20 @@ def create_bulk_passages():
         doubling_time = parse_numeric(entry.get("doubling_time_hours"))
         seeded_cells = parse_numeric(entry.get("seeded_cells"))
         measured_yield_cells = parse_millions(entry.get("measured_yield_millions"))
+        pre_split_confluence_value = None
+        pre_split_raw = entry.get("pre_split_confluence_percent")
+        if isinstance(pre_split_raw, str):
+            pre_split_raw = pre_split_raw.strip()
+        if pre_split_raw not in (None, ""):
+            numeric = parse_numeric(pre_split_raw)
+            if numeric is None:
+                db.session.rollback()
+                return jsonify({"error": "Enter a valid confluency percentage."}), 400
+            rounded = int(round(numeric))
+            if rounded < 0 or rounded > 100:
+                db.session.rollback()
+                return jsonify({"error": "Confluency should be between 0 and 100%."}), 400
+            pre_split_confluence_value = rounded
 
         if entry.get("use_previous_media") and last_passage:
             media = last_passage.media
@@ -1124,8 +1207,11 @@ def create_bulk_passages():
             vessels_used=vessels_used,
             seeded_cells=seeded_cells,
             measured_yield_cells=measured_yield_cells,
+            pre_split_confluence_percent=pre_split_confluence_value,
         )
         db.session.add(passage)
+
+        culture.pre_split_confluence_percent = None
 
         created_passages.append(
             {
@@ -1144,6 +1230,7 @@ def create_bulk_passages():
                 "measured_yield_display": format_cells(measured_yield_cells)
                 if measured_yield_cells is not None
                 else None,
+                "pre_split_confluence_percent": pre_split_confluence_value,
             }
         )
 
@@ -1184,6 +1271,7 @@ def export_cultures():
             "Cell concentration (cells/mL)",
             "Doubling time (hours)",
             "Vessel usage",
+            "Pre-split confluence (%)",
             "Seeded cells",
         ]
     )
@@ -1202,6 +1290,10 @@ def export_cultures():
             if formatted_seeded is not None:
                 seeded_cells_value = formatted_seeded
 
+        confluence_display = ""
+        if latest and latest.pre_split_confluence_percent is not None:
+            confluence_display = f"{latest.pre_split_confluence_percent}"
+
         writer.writerow(
             [
                 culture.name,
@@ -1215,6 +1307,7 @@ def export_cultures():
                 f"{latest.cell_concentration:g}" if latest and latest.cell_concentration else "",
                 f"{latest.doubling_time_hours:g}" if latest and latest.doubling_time_hours else "",
                 vessel_info,
+                confluence_display,
                 seeded_cells_value,
             ]
         )
@@ -1321,6 +1414,25 @@ def edit_passage(passage_id: int):
         passage.measured_yield_cells = parse_millions(
             request.form.get("measured_yield_millions")
         )
+        pre_split_raw = request.form.get("pre_split_confluence_percent")
+        if pre_split_raw in (None, ""):
+            passage.pre_split_confluence_percent = None
+        else:
+            cleaned = pre_split_raw.strip()
+            if not cleaned:
+                passage.pre_split_confluence_percent = None
+            else:
+                numeric = parse_numeric(cleaned)
+                if numeric is not None:
+                    rounded = int(round(numeric))
+                    if 0 <= rounded <= 100:
+                        passage.pre_split_confluence_percent = rounded
+                    else:
+                        flash("Confluency should be between 0 and 100%.", "error")
+                        return redirect(url_for("edit_passage", passage_id=passage.id))
+                else:
+                    flash("Enter a valid confluency percentage (0–100).", "error")
+                    return redirect(url_for("edit_passage", passage_id=passage.id))
 
         db.session.commit()
         flash(

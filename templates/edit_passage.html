@@ -87,6 +87,18 @@
                 placeholder="e.g. 24"
               />
             </label>
+            <label>
+              <span>Pre-split confluence (%)</span>
+              <input
+                type="number"
+                name="pre_split_confluence_percent"
+                min="0"
+                max="100"
+                step="1"
+                value="{{ passage.pre_split_confluence_percent if passage.pre_split_confluence_percent is not none else '' }}"
+                placeholder="e.g. 80"
+              />
+            </label>
           </div>
           <label class="wide">
             <span>Notes</span>
