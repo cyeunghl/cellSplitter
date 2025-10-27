@@ -429,6 +429,70 @@ textarea {
   margin-bottom: 1rem;
 }
 
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 1100;
+}
+
+.dialog {
+  background: #ffffff;
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+  padding: 1.5rem;
+  max-width: 420px;
+  width: 100%;
+}
+
+.dialog h3 {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  font-size: 1.125rem;
+}
+
+.dialog p.dialog-note {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: var(--muted-text);
+  font-size: 0.9rem;
+}
+
+.dialog-options {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.dialog-options .button {
+  width: 100%;
+}
+
+.dialog-other {
+  margin-top: 0.75rem;
+}
+
+.dialog-other .dialog-other-inputs {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dialog-other input[type='text'] {
+  flex: 1 1 auto;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
 .seeding-result h4 {
   margin-bottom: 0.35rem;
   font-size: 0.95rem;

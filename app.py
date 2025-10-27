@@ -817,6 +817,10 @@ def record_measurement(culture_id: int):
         culture.measured_cell_concentration = None
         culture.measured_slurry_volume_ml = None
         culture.measured_viability_percent = None
+        latest = culture.latest_passage
+        if latest is not None:
+            latest.measured_yield_cells = None
+            latest.measured_viability_percent = None
         db.session.commit()
         flash(f"Cleared measured yield details for '{culture.name}'.", "info")
         return redirect(url_for("view_culture", culture_id=culture.id))
@@ -842,10 +846,18 @@ def record_measurement(culture_id: int):
     culture.measured_slurry_volume_ml = volume_ml
     culture.measured_viability_percent = viability_value
 
-    db.session.commit()
-
+    latest_passage = culture.latest_passage
+    total_cells: Optional[float] = None
     if concentration and volume_ml:
         total_cells = concentration * volume_ml
+        if latest_passage is not None:
+            latest_passage.measured_yield_cells = total_cells
+    if viability_value is not None and latest_passage is not None:
+        latest_passage.measured_viability_percent = viability_value
+
+    db.session.commit()
+
+    if total_cells is not None:
         flash(
             f"Saved measured yield for '{culture.name}': "
             f"{format_cells(total_cells)} cells in {format_volume(volume_ml)}.",

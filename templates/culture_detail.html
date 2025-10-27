@@ -31,14 +31,13 @@
           <form method="post" action="{{ url_for('refresh_media', culture_id=culture.id) }}">
             <button class="button secondary" type="submit">Refresh media</button>
           </form>
-          <form method="post" action="{{ url_for('end_culture', culture_id=culture.id) }}">
+          <form
+            method="post"
+            action="{{ url_for('end_culture', culture_id=culture.id) }}"
+            data-end-culture-form
+          >
             <input type="hidden" name="ended_on" value="{{ today }}" />
-            <input
-              type="text"
-              name="end_reason"
-              placeholder="Reason for ending"
-              class="input-inline"
-            />
+            <input type="hidden" name="end_reason" value="" />
             <button class="button danger" type="submit">End culture</button>
           </form>
         {% endif %}
