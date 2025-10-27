@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Edit passage P{{ passage.passage_number }} · {{ culture.name }} · cellSplitter{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb">
+    <a href="{{ url_for('view_culture', culture_id=culture.id) }}">← Back to {{ culture.name }}</a>
+  </nav>
+
+  <section class="section">
+    <div class="section-header">
+      <h1>Edit passage P{{ passage.passage_number }}</h1>
+      <p>Update the recorded details for this passage.</p>
+    </div>
+    <div class="grid">
+      <article class="card">
+        <header class="card-header">
+          <h2>Passage details</h2>
+          <p>Adjust values below and save to keep the journal accurate.</p>
+        </header>
+        <form class="card-body form" method="post">
+          <div class="field-grid">
+            <label>
+              <span>Date</span>
+              <input type="date" name="date" value="{{ passage.date.strftime('%Y-%m-%d') }}" />
+            </label>
+            <label>
+              <span>Cell concentration (cells/mL)</span>
+              <input
+                type="text"
+                name="cell_concentration"
+                value="{{ passage.cell_concentration if passage.cell_concentration else '' }}"
+                placeholder="e.g. 1.5e6"
+              />
+            </label>
+            <label>
+              <span>Doubling time (hours)</span>
+              <input
+                type="text"
+                name="doubling_time_hours"
+                value="{{ passage.doubling_time_hours if passage.doubling_time_hours else '' }}"
+                placeholder="e.g. 22"
+              />
+            </label>
+          </div>
+          <label class="wide">
+            <span>Media</span>
+            <textarea name="media" rows="2" placeholder="Document media formulation">{{ passage.media or '' }}</textarea>
+          </label>
+          <div class="field-grid">
+            <label>
+              <span>Vessel</span>
+              <select name="vessel_id">
+                <option value="">None</option>
+                {% for vessel in vessels %}
+                  <option value="{{ vessel.id }}" {% if passage.vessel_id == vessel.id %}selected{% endif %}>
+                    {{ vessel.name }} ({{ '%g' % vessel.area_cm2 }} cm²)
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              <span>Number of vessels</span>
+              <input
+                type="number"
+                name="vessels_used"
+                min="1"
+                step="1"
+                value="{{ passage.vessels_used if passage.vessels_used else '' }}"
+              />
+            </label>
+            <label>
+              <span>Seeded cells (total)</span>
+              <input
+                type="text"
+                name="seeded_cells"
+                value="{{ passage.seeded_cells if passage.seeded_cells else '' }}"
+                placeholder="e.g. 2e6"
+              />
+            </label>
+            <label>
+              <span>Measured yield (M cells)</span>
+              <input
+                type="text"
+                name="measured_yield_millions"
+                value="{{ '%g' % (passage.measured_yield_cells / 1000000.0) if passage.measured_yield_cells else '' }}"
+                placeholder="e.g. 24"
+              />
+            </label>
+            <label>
+              <span>Pre-split confluence (%)</span>
+              <input
+                type="number"
+                name="pre_split_confluence_percent"
+                min="0"
+                max="100"
+                step="1"
+                value="{{ passage.pre_split_confluence_percent if passage.pre_split_confluence_percent is not none else '' }}"
+                placeholder="e.g. 80"
+              />
+            </label>
+          </div>
+          <label class="wide">
+            <span>Notes</span>
+            <textarea name="notes" rows="3" placeholder="Observations">{{ passage.notes or '' }}</textarea>
+          </label>
+          <div class="form-actions">
+            <button class="button primary" type="submit">Save changes</button>
+            <a class="button secondary" href="{{ url_for('view_culture', culture_id=culture.id) }}">Cancel</a>
+          </div>
+        </form>
+      </article>
+    </div>
+  </section>
+{% endblock %}
