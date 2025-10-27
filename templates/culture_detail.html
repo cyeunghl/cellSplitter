@@ -55,6 +55,7 @@
                   <th>Cell concentration</th>
                   <th>Doubling time</th>
                   <th>Vessel usage</th>
+                  <th>Pre-split confluence</th>
                   <th>Measured yield</th>
                   <th>Seeded cells</th>
                   <th>Notes</th>
@@ -80,10 +81,29 @@
                         —
                       {% endif %}
                     </td>
+                    <td>
+                      {% if passage.pre_split_confluence_percent is not none %}
+                        {{ passage.pre_split_confluence_percent }}%
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
                     <td>{{ passage.measured_yield_cells | format_cells }}</td>
                     <td>{{ passage.seeded_cells | format_cells }}</td>
                     <td class="wrap">{{ passage.notes or '—' }}</td>
                     <td class="actions">
+                      <button
+                        type="button"
+                        class="button ghost small"
+                        data-print-culture
+                        data-culture-name="{{ culture.name }}"
+                        data-passage-number="{{ passage.passage_number }}"
+                        data-date="{{ passage.date.strftime('%Y-%m-%d') }}"
+                        data-seeded="{{ passage.seeded_cells | format_cells if passage.seeded_cells is not none else '' }}"
+                        data-media="{{ passage.media or '' }}"
+                      >
+                        Copy culture
+                      </button>
                       <a
                         class="button secondary small"
                         href="{{ url_for('edit_passage', passage_id=passage.id) }}"
@@ -116,51 +136,127 @@
       <article class="card">
         <header class="card-header">
           <h2>Measured yield</h2>
-          <p>Capture harvest details to pre-fill the seeding planner.</p>
+          <p>Record pre-split confluence and harvest details to pre-fill the seeding planner.</p>
         </header>
-        <form
-          class="card-body form"
-          method="post"
-          action="{{ url_for('record_measurement', culture_id=culture.id) }}"
-          data-measurement-form
-        >
-          <div class="field-grid">
-            <label>
-              <span>Cell concentration (cells/mL)</span>
-              <input
-                type="text"
-                name="measured_cell_concentration"
-                placeholder="e.g. 1.5e6"
-                value="{{ '%g' % culture.measured_cell_concentration if culture.measured_cell_concentration is not none else '' }}"
-              />
-            </label>
-            <label>
-              <span>Cell slurry volume (mL)</span>
-              <input
-                type="text"
-                name="measured_slurry_volume_ml"
-                placeholder="e.g. 8"
-                value="{{ '%g' % culture.measured_slurry_volume_ml if culture.measured_slurry_volume_ml is not none else '' }}"
-              />
-            </label>
+        <div class="card-body" data-harvest-container>
+          <div
+            class="card-tabs"
+            role="tablist"
+            aria-label="Harvest inputs"
+            data-harvest-tabs
+            data-default-tab="confluence"
+          >
+            <button
+              type="button"
+              class="card-tab is-active"
+              role="tab"
+              id="harvest-tab-confluence"
+              aria-controls="harvest-panel-confluence"
+              aria-selected="true"
+              data-harvest-tab="confluence"
+            >
+              Record confluence
+            </button>
+            <button
+              type="button"
+              class="card-tab"
+              role="tab"
+              id="harvest-tab-measurement"
+              aria-controls="harvest-panel-measurement"
+              aria-selected="false"
+              data-harvest-tab="measurement"
+            >
+              Measured yield
+            </button>
           </div>
-          {% if culture.measured_cells_total %}
-            <p class="form-hint">
-              Estimated total cells: {{ culture.measured_cells_total | format_cells }}
-              {% if culture.measured_slurry_volume_ml %}
-                from {{ culture.measured_slurry_volume_ml | format_volume }} harvested.
+          <div
+            class="harvest-panel"
+            id="harvest-panel-confluence"
+            role="tabpanel"
+            aria-labelledby="harvest-tab-confluence"
+            data-harvest-section="confluence"
+          >
+            <form
+              class="form"
+              method="post"
+              action="{{ url_for('record_confluence', culture_id=culture.id) }}"
+            >
+              <label>
+                <span>Confluence (%)</span>
+                <input
+                  type="number"
+                  name="pre_split_confluence_percent"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="{{ default_pre_split_confluence if default_pre_split_confluence is not none else '' }}"
+                  placeholder="e.g. 80"
+                  required
+                />
+              </label>
+              <div class="form-actions">
+                <button class="button primary" type="submit">Save confluence</button>
+                {% if default_pre_split_confluence is not none %}
+                  <button class="button ghost" type="submit" name="clear" value="1" formnovalidate>
+                    Clear
+                  </button>
+                {% endif %}
+              </div>
+            </form>
+          </div>
+          <div
+            class="harvest-panel"
+            id="harvest-panel-measurement"
+            role="tabpanel"
+            aria-labelledby="harvest-tab-measurement"
+            data-harvest-section="measurement"
+            hidden
+          >
+            <form
+              class="form"
+              method="post"
+              action="{{ url_for('record_measurement', culture_id=culture.id) }}"
+              data-measurement-form
+            >
+              <div class="field-grid">
+                <label>
+                  <span>Cell concentration (cells/mL)</span>
+                  <input
+                    type="text"
+                    name="measured_cell_concentration"
+                    placeholder="e.g. 1.5e6"
+                    value="{{ '%g' % culture.measured_cell_concentration if culture.measured_cell_concentration is not none else '' }}"
+                  />
+                </label>
+                <label>
+                  <span>Cell slurry volume (mL)</span>
+                  <input
+                    type="text"
+                    name="measured_slurry_volume_ml"
+                    placeholder="e.g. 8"
+                    value="{{ '%g' % culture.measured_slurry_volume_ml if culture.measured_slurry_volume_ml is not none else '' }}"
+                  />
+                </label>
+              </div>
+              {% if culture.measured_cells_total %}
+                <p class="form-hint">
+                  Estimated total cells: {{ culture.measured_cells_total | format_cells }}
+                  {% if culture.measured_slurry_volume_ml %}
+                    from {{ culture.measured_slurry_volume_ml | format_volume }} harvested.
+                  {% endif %}
+                </p>
               {% endif %}
-            </p>
-          {% endif %}
-          <div class="form-actions">
-            <button class="button primary" type="submit">Save measurement</button>
-            {% if culture.measured_cell_concentration or culture.measured_slurry_volume_ml %}
-              <button class="button ghost" type="submit" name="clear" value="1" formnovalidate>
-                Clear
-              </button>
-            {% endif %}
+              <div class="form-actions">
+                <button class="button primary" type="submit">Save measurement</button>
+                {% if culture.measured_cell_concentration or culture.measured_slurry_volume_ml %}
+                  <button class="button ghost" type="submit" name="clear" value="1" formnovalidate>
+                    Clear
+                  </button>
+                {% endif %}
+              </div>
+            </form>
           </div>
-        </form>
+        </div>
       </article>
 
       <article class="card">
@@ -332,6 +428,8 @@
             action="{{ url_for('add_passage', culture_id=culture.id) }}"
             data-passage-form
             data-culture-ended="false"
+            data-culture-name="{{ culture.name }}"
+            data-next-passage="{{ culture.next_passage_number }}"
           >
             <input type="hidden" name="vessel_id" id="passage-vessel-id" />
             <input type="hidden" name="vessels_used" id="passage-vessels-used" />
@@ -353,7 +451,7 @@
                   rows="2"
                   placeholder="Document media formulation"
                   id="media-field"
-                ></textarea>
+                >{% if last_passage and last_passage.media %}{{ last_passage.media }}{% endif %}</textarea>
               </label>
               <label class="checkbox" {% if not last_passage or not last_passage.media %}data-disabled="true"{% endif %}>
                 <input
@@ -361,7 +459,7 @@
                   name="use_previous_media"
                   id="use-previous-media"
                   value="1"
-                  {% if not last_passage or not last_passage.media %}disabled{% endif %}
+                  {% if last_passage and last_passage.media %}checked{% else %}disabled{% endif %}
                   data-media="{{ last_passage.media if last_passage else '' }}"
                 />
                 <span>Use previous passage media</span>
@@ -387,6 +485,19 @@
                 />
               </label>
               <label>
+                <span>Pre-split confluence (%)</span>
+                <input
+                  type="number"
+                  name="pre_split_confluence_percent"
+                  id="passage-pre-split-confluence"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="{{ default_pre_split_confluence if default_pre_split_confluence is not none else '' }}"
+                  placeholder="e.g. 80"
+                />
+              </label>
+              <label>
                 <span>Doubling time (hours)</span>
                 <input
                   type="text"
@@ -407,6 +518,7 @@
             </div>
             <div class="form-actions">
               <button class="button primary" type="submit">Save passage</button>
+              <button class="button ghost" type="button" data-copy-passage-label>Copy label</button>
             </div>
           </form>
         {% else %}

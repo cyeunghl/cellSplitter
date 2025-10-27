@@ -27,50 +27,55 @@
       {% endif %}
     </div>
     {% if active_cultures %}
-      <div class="grid">
-        {% for culture in active_cultures %}
-          <article class="card">
-            <header class="card-header">
-              <h2>{{ culture.name }}</h2>
-              <p>
-                {{ culture.cell_line.name }} ·
-                {{ culture.cell_line.display_doubling_time() }}
-              </p>
-            </header>
-            <div class="card-body">
-              <dl>
-                <div>
-                  <dt>Started</dt>
-                  <dd>{{ culture.start_date.strftime('%Y-%m-%d') }}</dd>
-                </div>
-                <div>
-                  <dt>Current passage</dt>
-                  <dd>
-                    {% if culture.latest_passage %}
-                      P{{ culture.latest_passage.passage_number }}
-                      ({{ culture.latest_passage.date.strftime('%Y-%m-%d') }})
-                    {% else %}
-                      —
-                    {% endif %}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-            <footer class="card-footer actions">
-              <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">
-                View journal
-              </a>
-              <form
-                class="inline-form"
-                method="post"
-                action="{{ url_for('end_culture', culture_id=culture.id) }}"
-              >
-                <input type="hidden" name="ended_on" value="{{ today }}" />
-                <button class="button danger" type="submit">End culture</button>
-              </form>
-            </footer>
-          </article>
-        {% endfor %}
+      <div class="table-wrapper">
+        <table class="table cultures-table">
+          <thead>
+            <tr>
+              <th scope="col">Culture</th>
+              <th scope="col">Started</th>
+              <th scope="col">Current passage</th>
+              <th scope="col" class="actions-column">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for culture in active_cultures %}
+              <tr>
+                <td>
+                  <strong>{{ culture.name }}</strong>
+                  <p class="meta">
+                    {{ culture.cell_line.name }} ·
+                    {{ culture.cell_line.display_doubling_time() }}
+                  </p>
+                </td>
+                <td>{{ culture.start_date.strftime('%Y-%m-%d') }}</td>
+                <td>
+                  {% if culture.latest_passage %}
+                    P{{ culture.latest_passage.passage_number }}
+                    ({{ culture.latest_passage.date.strftime('%Y-%m-%d') }})
+                  {% else %}
+                    —
+                  {% endif %}
+                  {% if culture.latest_passage and culture.latest_passage.passage_number > 20 %}
+                    <p class="warning-text">Time to refresh and thaw new cell line</p>
+                  {% endif %}
+                </td>
+                <td class="actions">
+                  <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">
+                    View journal
+                  </a>
+                  <form
+                    class="inline-form"
+                    method="post"
+                    action="{{ url_for('end_culture', culture_id=culture.id) }}"
+                  >
+                    <input type="hidden" name="ended_on" value="{{ today }}" />
+                    <button class="button danger" type="submit">End culture</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
       <article class="card label-card">
         <header class="card-header with-actions">
@@ -79,6 +84,13 @@
             <p>Quick label text for active cultures with today&rsquo;s date and initials.</p>
           </div>
           <div class="card-actions">
+            <button
+              type="button"
+              class="button ghost copy-myco-select-all"
+              data-table-id="myco-label-table"
+            >
+              Select all
+            </button>
             <button
               type="button"
               class="button secondary copy-myco-table"
@@ -92,14 +104,23 @@
           <table class="table label-table" id="myco-label-table">
             <thead>
               <tr>
+                <th scope="col" class="select-col" aria-label="Select label"></th>
                 <th scope="col">Label text</th>
                 <th scope="col">Culture</th>
               </tr>
             </thead>
             <tbody>
               {% for culture in active_cultures %}
-                {% set label_text = today.strftime('%Y-%m-%d') ~ ' ' ~ culture.name ~ ' CY' %}
+                {% set label_text = culture.name ~ ' ' ~ today.strftime('%Y-%m-%d') ~ ' CY' %}
                 <tr>
+                  <td class="select-cell">
+                    <input
+                      type="checkbox"
+                      class="label-select"
+                      name="myco-select-{{ loop.index }}"
+                      aria-label="Select label for {{ culture.name }}"
+                    />
+                  </td>
                   <td class="wrap">
                     <pre class="label-snippet">{{ label_text }}</pre>
                   </td>
@@ -108,6 +129,93 @@
               {% endfor %}
             </tbody>
           </table>
+        </div>
+      </article>
+      <article class="card bulk-card">
+        <header class="card-header">
+          <h3>Bulk process cultures</h3>
+          <p>Select multiple cultures to capture measurements, log passages, and prepare labels together.</p>
+        </header>
+        <div
+          class="card-body"
+          data-bulk-card
+          data-default-vessel="{{ default_vessel_id or '' }}"
+          data-today="{{ today }}"
+        >
+          <div class="bulk-selection" data-bulk-selection>
+            <p>Select cultures to include:</p>
+            <div class="bulk-selection-grid">
+              {% for culture in active_cultures %}
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    class="bulk-culture-select"
+                    value="{{ culture.id }}"
+                    data-culture-id="{{ culture.id }}"
+                    aria-label="Select {{ culture.name }} for bulk processing"
+                  />
+                  <span>{{ culture.name }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="bulk-actions">
+            <button type="button" class="button ghost" data-bulk-select-all>Select all</button>
+            <button type="button" class="button secondary" data-bulk-generate-copy>
+              Generate copy table
+            </button>
+            <button type="button" class="button secondary" data-bulk-start>Start harvest</button>
+          </div>
+          <div class="bulk-output" id="bulk-copy-output" hidden></div>
+          <div class="bulk-workflow" data-bulk-workflow hidden>
+            <div class="bulk-tabs">
+              <button type="button" class="bulk-tab is-active" data-bulk-tab="harvest">
+                Harvest
+              </button>
+              <button type="button" class="bulk-tab" data-bulk-tab="planner" disabled>
+                Planner
+              </button>
+            </div>
+            <form class="form bulk-harvest-form" data-bulk-harvest-form>
+              <div class="table-wrapper">
+                <table class="table bulk-harvest-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Culture</th>
+                      <th scope="col">Pre-split confluence (%)</th>
+                      <th scope="col">Measured concentration (cells/mL)</th>
+                      <th scope="col">Slurry volume (mL)</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="form-actions">
+                <button class="button primary" type="submit">Save harvest</button>
+              </div>
+              <p class="form-hint bulk-status" data-harvest-status></p>
+            </form>
+            <form class="form bulk-planner-form" data-bulk-planner-form hidden>
+              <div class="table-wrapper">
+                <table class="table bulk-planner-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Culture</th>
+                      <th scope="col">Seeding planner</th>
+                      <th scope="col">Passage details</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="form-actions">
+                <button class="button primary" type="submit">Save passages</button>
+              </div>
+              <p class="form-hint bulk-status" data-planner-status></p>
+            </form>
+            <p class="form-hint bulk-status" data-bulk-status></p>
+          </div>
+          <div class="bulk-output" id="bulk-label-output" hidden></div>
         </div>
       </article>
     {% else %}
@@ -294,5 +402,17 @@
         {% endfor %}
       </div>
     </section>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  {% if active_cultures %}
+    <script type="application/json" id="bulk-culture-data">
+      {{ bulk_cultures_json | safe }}
+    </script>
+    <script type="application/json" id="bulk-vessel-data">
+      {{ vessel_payload_json | safe }}
+    </script>
   {% endif %}
 {% endblock %}
