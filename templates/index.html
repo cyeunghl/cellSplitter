@@ -102,20 +102,43 @@
                   {% endif %}
                 </td>
                 <td>
-                  <form
-                    class="inline-form myco-status-form"
-                    method="post"
-                    action="{{ url_for('update_myco_status', culture_id=culture.id) }}"
-                    data-myco-status-form
-                  >
-                    <input type="hidden" name="redirect" value="{{ url_for('index') }}" />
-                    <select name="myco_status" class="myco-status-select">
-                      {% for value, label in myco_status_choices %}
-                        <option value="{{ value }}" {% if culture.current_myco_status_value == value %}selected{% endif %}>{{ label }}</option>
-                      {% endfor %}
-                    </select>
-                    <button class="button ghost small" type="submit">Save</button>
-                  </form>
+                  <div class="myco-status-wrapper">
+                    <span
+                      class="myco-badge status-{{ culture.current_myco_status_value or 'myco_untested' }}"
+                      data-myco-badge
+                    >
+                      {{ culture.current_myco_status_label }}
+                    </span>
+                    <form
+                      class="inline-form myco-status-form"
+                      method="post"
+                      action="{{ url_for('update_myco_status', culture_id=culture.id) }}"
+                      data-myco-status-form
+                      {% if culture.myco_status_locked %}data-myco-locked="true"{% endif %}
+                    >
+                      <input type="hidden" name="redirect" value="{{ url_for('index') }}" />
+                      <select
+                        name="myco_status"
+                        class="myco-status-select"
+                        {% if culture.myco_status_locked %}disabled{% endif %}
+                        data-myco-select
+                      >
+                        {% for value, label in myco_status_choices %}
+                          <option value="{{ value }}" {% if culture.current_myco_status_value == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                      </select>
+                      <button
+                        class="button ghost small"
+                        type="submit"
+                        {% if culture.myco_status_locked %}disabled{% endif %}
+                      >
+                        Save
+                      </button>
+                    </form>
+                    {% if culture.myco_status_locked %}
+                      <p class="form-hint">Locked until the next passage.</p>
+                    {% endif %}
+                  </div>
                 </td>
                 <td class="actions">
                   <a class="button" href="{{ url_for('view_culture', culture_id=culture.id) }}">

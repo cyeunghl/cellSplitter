@@ -358,12 +358,49 @@ textarea {
   gap: 0.5rem;
 }
 
+.myco-status-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.myco-status-wrapper .myco-status-form {
+  margin: 0;
+}
+
 .myco-status-form .button.small {
   padding: 0.2rem 0.65rem;
 }
 
 .myco-status-select {
   min-width: 9rem;
+}
+
+.myco-badge {
+  display: inline-block;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+  background-color: #e5e7eb;
+  color: #374151;
+}
+
+.myco-badge.status-myco_untested {
+  background-color: #e5e7eb;
+  color: #374151;
+}
+
+.myco-badge.status-myco_free {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.myco-badge.status-myco_contaminated {
+  background-color: #fee2e2;
+  color: #991b1b;
 }
 
 .visually-hidden {

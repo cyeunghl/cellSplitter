@@ -67,10 +67,23 @@ MYCO_STATUS_CONTAMINATED = "myco_contaminated"
 
 MYCO_STATUS_CHOICES: list[tuple[str, str]] = [
     (MYCO_STATUS_UNTESTED, "Myco-untested"),
-    (MYCO_STATUS_TESTED, "Myco tested"),
     (MYCO_STATUS_FREE, "Myco-free"),
     (MYCO_STATUS_CONTAMINATED, "Myco-contaminated"),
 ]
+
+MYCO_STATUS_DISPLAY_FALLBACK = {
+    MYCO_STATUS_TESTED: "Myco-free",
+}
+
+
+def normalize_myco_status(value: Optional[str]) -> str:
+    if not value:
+        return MYCO_STATUS_UNTESTED
+    if value == MYCO_STATUS_TESTED:
+        return MYCO_STATUS_FREE
+    if value in {MYCO_STATUS_UNTESTED, MYCO_STATUS_FREE, MYCO_STATUS_CONTAMINATED}:
+        return value
+    return MYCO_STATUS_UNTESTED
 
 
 def suggest_slurry_volume(vessel_name: Optional[str]) -> Optional[float]:
@@ -167,7 +180,7 @@ class Culture(db.Model):
     def current_myco_status(self) -> str:
         latest = self.latest_passage
         if latest and latest.myco_status:
-            return latest.myco_status
+            return normalize_myco_status(latest.myco_status)
         return MYCO_STATUS_UNTESTED
 
 
@@ -187,6 +200,7 @@ class Passage(db.Model):
     pre_split_confluence_percent = db.Column(db.Integer, nullable=True)
     measured_viability_percent = db.Column(db.Integer, nullable=True)
     myco_status = db.Column(db.String(32), nullable=True)
+    myco_status_locked = db.Column(db.Boolean, nullable=False, default=False)
 
     culture = db.relationship("Culture", back_populates="passages")
     vessel = db.relationship("Vessel")
@@ -317,6 +331,16 @@ def ensure_columns() -> None:
             connection.execute(text("ALTER TABLE culture ADD COLUMN end_reason TEXT"))
         if not has_column("passage", "myco_status"):
             connection.execute(text("ALTER TABLE passage ADD COLUMN myco_status TEXT"))
+        if not has_column("passage", "myco_status_locked"):
+            connection.execute(
+                text("ALTER TABLE passage ADD COLUMN myco_status_locked BOOLEAN DEFAULT 0")
+            )
+        connection.execute(
+            text(
+                "UPDATE passage SET myco_status = :free WHERE myco_status = :tested"
+            ),
+            {"free": MYCO_STATUS_FREE, "tested": MYCO_STATUS_TESTED},
+        )
 
 
 def parse_date(value: str | None) -> date:
@@ -444,9 +468,13 @@ def format_significant(value: Optional[float], digits: int = 2) -> Optional[str]
 
 def display_myco_status(value: Optional[str]) -> str:
     lookup = {key: label for key, label in MYCO_STATUS_CHOICES}
-    if not value:
-        return lookup[MYCO_STATUS_UNTESTED]
-    return lookup.get(value, lookup[MYCO_STATUS_UNTESTED])
+    normalized = normalize_myco_status(value)
+    if normalized in lookup:
+        return lookup[normalized]
+    fallback = MYCO_STATUS_DISPLAY_FALLBACK.get(normalized)
+    if fallback:
+        return fallback
+    return lookup[MYCO_STATUS_UNTESTED]
 
 
 app.jinja_env.filters["format_cells"] = format_cells
@@ -503,6 +531,7 @@ def index():
         culture.passage_warning_threshold = passage_warning_threshold
         culture.current_myco_status_value = culture.current_myco_status
         culture.current_myco_status_label = display_myco_status(culture.current_myco_status_value)
+        culture.myco_status_locked = bool(latest and latest.myco_status_locked)
         default_cell_concentration = culture.measured_cell_concentration
         if default_cell_concentration is None and latest and latest.cell_concentration:
             default_cell_concentration = latest.cell_concentration
@@ -568,6 +597,7 @@ def index():
             "pre_split_confluence_percent": culture.pre_split_confluence_percent,
             "days_since_last_passage": days_since_last_passage,
             "myco_status": culture.current_myco_status_value,
+            "myco_status_locked": culture.myco_status_locked,
         }
         bulk_culture_payload.append(culture_payload)
 
@@ -682,6 +712,7 @@ def create_culture():
         doubling_time_hours=initial_doubling_time,
         notes=initial_notes,
         myco_status=MYCO_STATUS_UNTESTED,
+        myco_status_locked=False,
     )
     db.session.add(passage)
     db.session.commit()
@@ -726,6 +757,7 @@ def view_culture(culture_id: int):
 
     culture.current_myco_status_value = culture.current_myco_status
     culture.current_myco_status_label = display_myco_status(culture.current_myco_status_value)
+    culture.myco_status_locked = bool(last_passage and last_passage.myco_status_locked)
 
     return render_template(
         "culture_detail.html",
@@ -735,6 +767,7 @@ def view_culture(culture_id: int):
         default_cell_concentration=default_cell_concentration,
         default_vessel_id=default_vessel_id,
         default_measured_yield_display=default_measured_yield_display,
+        default_measured_yield_millions=default_measured_yield_millions,
         default_pre_split_confluence=culture.pre_split_confluence_percent,
         default_viability_percent=default_viability,
         today=date.today(),
@@ -839,9 +872,11 @@ def add_passage(culture_id: int):
     valid_statuses = {choice[0] for choice in MYCO_STATUS_CHOICES}
     if not myco_status or myco_status not in valid_statuses:
         if last_passage and last_passage.myco_status:
-            myco_status = last_passage.myco_status
+            myco_status = normalize_myco_status(last_passage.myco_status)
         else:
             myco_status = MYCO_STATUS_UNTESTED
+    else:
+        myco_status = normalize_myco_status(myco_status)
 
     passage = Passage(
         culture=culture,
@@ -858,6 +893,7 @@ def add_passage(culture_id: int):
         pre_split_confluence_percent=pre_split_for_new,
         measured_viability_percent=viability_for_new,
         myco_status=myco_status,
+        myco_status_locked=False,
     )
     db.session.add(passage)
 
@@ -1557,9 +1593,11 @@ def create_bulk_passages():
         valid_statuses = {choice[0] for choice in MYCO_STATUS_CHOICES}
         if myco_status_value not in valid_statuses:
             if last_passage and last_passage.myco_status:
-                myco_status_value = last_passage.myco_status
+                myco_status_value = normalize_myco_status(last_passage.myco_status)
             else:
                 myco_status_value = MYCO_STATUS_UNTESTED
+        else:
+            myco_status_value = normalize_myco_status(myco_status_value)
 
         passage = Passage(
             culture=culture,
@@ -1576,6 +1614,7 @@ def create_bulk_passages():
             pre_split_confluence_percent=pre_split_for_new,
             measured_viability_percent=viability_for_new,
             myco_status=myco_status_value,
+            myco_status_locked=False,
         )
         db.session.add(passage)
 
@@ -1795,8 +1834,12 @@ def update_myco_status(culture_id: int):
         if latest is None:
             db.session.rollback()
             flash("Create at least one passage before setting Myco status.", "error")
+        elif latest.myco_status_locked:
+            db.session.rollback()
+            flash("Myco status is locked until the next passage is logged.", "error")
         else:
             latest.myco_status = status
+            latest.myco_status_locked = True
             db.session.commit()
             flash(
                 f"Updated Myco status for '{culture.name}' to {display_myco_status(status)}.",

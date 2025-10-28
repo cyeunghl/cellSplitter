@@ -56,23 +56,46 @@
               {% endif %}
             </p>
           </div>
-          <form
-            class="inline-form myco-status-form"
-            method="post"
-            action="{{ url_for('update_myco_status', culture_id=culture.id) }}"
-            data-myco-status-form
-          >
-            <input type="hidden" name="redirect" value="{{ url_for('view_culture', culture_id=culture.id) }}" />
-            <label>
-              <span class="visually-hidden">Myco status</span>
-              <select name="myco_status" class="myco-status-select">
-                {% for value, label in myco_status_choices %}
-                  <option value="{{ value }}" {% if culture.current_myco_status_value == value %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <button class="button ghost small" type="submit">Save</button>
-          </form>
+          <div class="myco-status-wrapper">
+            <span
+              class="myco-badge status-{{ culture.current_myco_status_value or 'myco_untested' }}"
+              data-myco-badge
+            >
+              {{ culture.current_myco_status_label }}
+            </span>
+            <form
+              class="inline-form myco-status-form"
+              method="post"
+              action="{{ url_for('update_myco_status', culture_id=culture.id) }}"
+              data-myco-status-form
+              {% if culture.myco_status_locked %}data-myco-locked="true"{% endif %}
+            >
+              <input type="hidden" name="redirect" value="{{ url_for('view_culture', culture_id=culture.id) }}" />
+              <label>
+                <span class="visually-hidden">Myco status</span>
+                <select
+                  name="myco_status"
+                  class="myco-status-select"
+                  {% if culture.myco_status_locked %}disabled{% endif %}
+                  data-myco-select
+                >
+                  {% for value, label in myco_status_choices %}
+                    <option value="{{ value }}" {% if culture.current_myco_status_value == value %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button
+                class="button ghost small"
+                type="submit"
+                {% if culture.myco_status_locked %}disabled{% endif %}
+              >
+                Save
+              </button>
+            </form>
+            {% if culture.myco_status_locked %}
+              <p class="form-hint">Locked until the next passage.</p>
+            {% endif %}
+          </div>
         </header>
         <div class="card-body">
           {% if culture.passages %}
@@ -129,7 +152,13 @@
                       {% endif %}
                     </td>
                     <td>{{ passage.seeded_cells | format_cells }}</td>
-                    <td>{{ passage.myco_status | display_myco_status }}</td>
+                    <td>
+                      <span
+                        class="myco-badge status-{{ passage.myco_status or 'myco_untested' }}"
+                      >
+                        {{ passage.myco_status | display_myco_status }}
+                      </span>
+                    </td>
                     <td class="wrap">{{ passage.notes or '—' }}</td>
                     <td class="actions">
                       <button
@@ -319,6 +348,8 @@
         <form
           id="seeding-form"
           class="card-body form"
+          method="post"
+          action="{{ url_for('add_passage', culture_id=culture.id) }}"
           data-culture-id="{{ culture.id }}"
           data-culture-name="{{ culture.name }}"
           data-cell-line-name="{{ culture.cell_line.name }}"
@@ -328,7 +359,31 @@
           data-measured-concentration="{{ '%.6g' % culture.measured_cell_concentration if culture.measured_cell_concentration is not none else '' }}"
           data-measured-volume="{{ '%.6g' % culture.measured_slurry_volume_ml if culture.measured_slurry_volume_ml is not none else '' }}"
           data-default-concentration="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '1e6' }}"
+          data-culture-ended="{{ 'true' if not culture.is_active else 'false' }}"
         >
+          <input
+            type="hidden"
+            name="cell_concentration"
+            data-seeding-cell-concentration
+            value="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '' }}"
+          />
+          <input type="hidden" name="seeded_cells" data-seeding-seeded-cells value="" />
+          <input
+            type="hidden"
+            name="measured_yield_millions"
+            data-seeding-measured-yield
+            value="{{ '%.6g' % default_measured_yield_millions if default_measured_yield_millions is not none else '' }}"
+          />
+          <input
+            type="hidden"
+            name="pre_split_confluence_percent"
+            value="{{ default_pre_split_confluence if default_pre_split_confluence is not none else '' }}"
+          />
+          <input
+            type="hidden"
+            name="measured_viability_percent"
+            value="{{ default_viability_percent if default_viability_percent is not none else '' }}"
+          />
           <div class="mode-toggle" role="radiogroup" aria-label="Seeding workflow">
             <label>
               <input type="radio" name="operation" value="split" checked />
@@ -525,56 +580,15 @@
               />
             </label>
           </section>
-          <button class="button primary" type="submit">Calculate plan</button>
-        </form>
-        <div id="seeding-result" class="card-footer muted">
-          <p>Enter parameters above and calculate to see seeding guidance.</p>
-        </div>
-        {% if culture.is_active %}
-          <div class="card-divider"></div>
-          <form
-            id="passage-form"
-            class="card-body form"
-            method="post"
-            action="{{ url_for('add_passage', culture_id=culture.id) }}"
-            data-passage-form
-            data-culture-ended="false"
-            data-culture-name="{{ culture.name }}"
-            data-next-passage="{{ culture.next_passage_number }}"
-          >
-            <h3>Log passage P{{ culture.next_passage_number }}</h3>
-            <input
-              type="hidden"
-              name="cell_concentration"
-              id="passage-cell-concentration"
-              value="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '' }}"
-            />
+          <section class="planner-subsection" data-passage-section>
+            <header>
+              <h3>Passage details</h3>
+              <p class="form-hint">Log passage P{{ culture.next_passage_number }} once the plan is ready.</p>
+            </header>
             <div class="field-grid">
               <label>
                 <span>Date</span>
                 <input type="date" name="date" value="{{ today }}" />
-              </label>
-              <label>
-                <span>Vessel</span>
-                <select name="vessel_id" id="passage-vessel-id">
-                  <option value="">Select a vessel…</option>
-                  {% for vessel in vessels %}
-                    <option value="{{ vessel.id }}" data-area="{{ '%g' % vessel.area_cm2 }}" data-name="{{ vessel.name }}">
-                      {{ vessel.name }} ({{ '%g' % vessel.area_cm2 }} cm²)
-                    </option>
-                  {% endfor %}
-                </select>
-              </label>
-              <label>
-                <span>Number of vessels</span>
-                <input
-                  type="number"
-                  name="vessels_used"
-                  id="passage-vessels-used"
-                  min="1"
-                  step="1"
-                  placeholder="e.g. 1"
-                />
               </label>
               <label>
                 <span>Doubling time (hours)</span>
@@ -583,16 +597,6 @@
                   name="doubling_time_hours"
                   placeholder="e.g. 22"
                   value="{{ last_passage.doubling_time_hours if last_passage else culture.cell_line.average_doubling_time }}"
-                />
-              </label>
-              <label>
-                <span>Cells seeded (cells)</span>
-                <input
-                  type="text"
-                  name="seeded_cells"
-                  id="passage-seeded-cells"
-                  placeholder="e.g. 1.5e6"
-                  value="{{ '%g' % last_passage.seeded_cells if last_passage and last_passage.seeded_cells is not none else '' }}"
                 />
               </label>
             </div>
@@ -625,12 +629,16 @@
                 placeholder="Observations"
               ></textarea>
             </label>
-            <div class="form-actions">
-              <button class="button primary" type="submit">Save passage</button>
-              <button class="button ghost" type="button" data-copy-passage-label>Copy label</button>
-            </div>
-          </form>
-        {% else %}
+          </section>
+          <div class="form-actions">
+            <button class="button primary" type="submit" data-seeding-submit>Calculate plan</button>
+            <button class="button ghost" type="button" data-copy-seeding-label>Copy label</button>
+          </div>
+        </form>
+        <div id="seeding-result" class="card-footer muted">
+          <p>Enter parameters above and calculate to see seeding guidance.</p>
+        </div>
+        {% if not culture.is_active %}
           <div class="card-footer muted">
             <p class="empty-state">
               This culture has been ended. Reactivate it to log additional passages.
