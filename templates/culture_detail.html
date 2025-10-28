@@ -1,0 +1,665 @@
+{% extends "base.html" %}
+
+{% block title %}{{ culture.name }} · cellSplitter{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb">
+    <a href="{{ url_for('index') }}">← Back to cultures</a>
+  </nav>
+
+  <section class="section">
+    <div class="section-header with-actions">
+      <div>
+        <h1>{{ culture.name }}</h1>
+        <p>
+          {{ culture.cell_line.name }} · {{ culture.cell_line.display_doubling_time() }} ·
+          Started {{ culture.start_date.strftime('%Y-%m-%d') }}
+        </p>
+        {% if culture.ended_on %}
+          <p class="status ended">Ended on {{ culture.ended_on.strftime('%Y-%m-%d') }}</p>
+          {% if culture.end_reason %}
+            <p class="status note">Reason: {{ culture.end_reason }}</p>
+          {% endif %}
+        {% endif %}
+      </div>
+      <div class="header-actions">
+        {% if culture.ended_on %}
+          <form method="post" action="{{ url_for('reactivate_culture', culture_id=culture.id) }}">
+            <button class="button secondary" type="submit">Reactivate culture</button>
+          </form>
+        {% else %}
+          <form method="post" action="{{ url_for('refresh_media', culture_id=culture.id) }}">
+            <button class="button secondary" type="submit">Refresh media</button>
+          </form>
+          <form
+            method="post"
+            action="{{ url_for('end_culture', culture_id=culture.id) }}"
+            data-end-culture-form
+          >
+            <input type="hidden" name="ended_on" value="{{ today }}" />
+            <input type="hidden" name="end_reason" value="" />
+            <button class="button danger" type="submit">End culture</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+    <div class="grid">
+      <article class="card">
+        <header class="card-header">
+          <h2>Passage history</h2>
+          <p>
+            {% if culture.latest_passage %}
+              Current passage: P{{ culture.latest_passage.passage_number }}
+            {% else %}
+              No passages logged yet.
+            {% endif %}
+          </p>
+        </header>
+        <div class="card-body">
+          {% if culture.passages %}
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Passage</th>
+                  <th>Date</th>
+                  <th>Media</th>
+                  <th>Cell concentration</th>
+                  <th>Doubling time</th>
+                  <th>Vessel usage</th>
+                  <th>Pre-split confluence</th>
+                  <th>Measured yield</th>
+                  <th>Viability</th>
+                  <th>Seeded cells</th>
+                  <th>Notes</th>
+                  <th class="actions-column">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for passage in culture.passages %}
+                  <tr>
+                    <td>P{{ passage.passage_number }}</td>
+                    <td>{{ passage.date.strftime('%Y-%m-%d') }}</td>
+                    <td class="wrap">{{ passage.media or '—' }}</td>
+                    <td>{{ passage.cell_concentration | format_cells }}</td>
+                    <td>{{ passage.doubling_time_hours | format_hours }}</td>
+                    <td class="wrap">
+                      {% if passage.vessel %}
+                        {% set vessel_count = passage.vessels_used or 1 %}
+                        {{ vessel_count }} × {{ passage.vessel.name }}
+                        {% if passage.vessel.area_cm2 %}
+                          ({{ '%g' % passage.vessel.area_cm2 }} cm²)
+                        {% endif %}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if passage.pre_split_confluence_percent is not none %}
+                        {{ passage.pre_split_confluence_percent }}%
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td>{{ passage.measured_yield_cells | format_cells }}</td>
+                    <td>
+                      {% if passage.measured_viability_percent is not none %}
+                        {{ passage.measured_viability_percent }}%
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td>{{ passage.seeded_cells | format_cells }}</td>
+                    <td class="wrap">{{ passage.notes or '—' }}</td>
+                    <td class="actions">
+                      <button
+                        type="button"
+                        class="button ghost small"
+                        data-print-culture
+                        data-culture-name="{{ culture.name }}"
+                        data-passage-number="{{ passage.passage_number }}"
+                        data-date="{{ passage.date.strftime('%Y-%m-%d') }}"
+                        data-seeded="{{ passage.seeded_cells | format_cells if passage.seeded_cells is not none else '' }}"
+                        data-media="{{ passage.media or '' }}"
+                      >
+                        Copy culture
+                      </button>
+                      <a
+                        class="button secondary small"
+                        href="{{ url_for('edit_passage', passage_id=passage.id) }}"
+                      >
+                        Edit
+                      </a>
+                      <form
+                        class="inline-form"
+                        method="post"
+                        action="{{ url_for('delete_passage', passage_id=passage.id) }}"
+                        onsubmit="return confirm('Delete passage P{{ passage.passage_number }}?');"
+                      >
+                        <button class="button danger small" type="submit">Delete</button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="empty-state">No passages recorded yet.</p>
+          {% endif %}
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="grid">
+      <article class="card">
+        <header class="card-header">
+          <h2>Measured yield</h2>
+          <p>Record pre-split confluence and harvest details to pre-fill the seeding planner.</p>
+        </header>
+        <div class="card-body" data-harvest-container>
+          <div
+            class="card-tabs"
+            role="tablist"
+            aria-label="Harvest inputs"
+            data-harvest-tabs
+            data-default-tab="confluence"
+          >
+            <button
+              type="button"
+              class="card-tab is-active"
+              role="tab"
+              id="harvest-tab-confluence"
+              aria-controls="harvest-panel-confluence"
+              aria-selected="true"
+              data-harvest-tab="confluence"
+            >
+              Record confluence
+            </button>
+            <button
+              type="button"
+              class="card-tab"
+              role="tab"
+              id="harvest-tab-measurement"
+              aria-controls="harvest-panel-measurement"
+              aria-selected="false"
+              data-harvest-tab="measurement"
+            >
+              Measured yield
+            </button>
+          </div>
+          <div
+            class="harvest-panel"
+            id="harvest-panel-confluence"
+            role="tabpanel"
+            aria-labelledby="harvest-tab-confluence"
+            data-harvest-section="confluence"
+          >
+            <form
+              class="form"
+              method="post"
+              action="{{ url_for('record_confluence', culture_id=culture.id) }}"
+            >
+              <label>
+                <span>Confluence (%)</span>
+                <input
+                  type="number"
+                  name="pre_split_confluence_percent"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="{{ default_pre_split_confluence if default_pre_split_confluence is not none else '' }}"
+                  placeholder="e.g. 80"
+                  required
+                />
+              </label>
+              <div class="form-actions">
+                <button class="button primary" type="submit">Save confluence</button>
+                {% if default_pre_split_confluence is not none %}
+                  <button class="button ghost" type="submit" name="clear" value="1" formnovalidate>
+                    Clear
+                  </button>
+                {% endif %}
+              </div>
+            </form>
+          </div>
+          <div
+            class="harvest-panel"
+            id="harvest-panel-measurement"
+            role="tabpanel"
+            aria-labelledby="harvest-tab-measurement"
+            data-harvest-section="measurement"
+            hidden
+          >
+            <form
+              class="form"
+              method="post"
+              action="{{ url_for('record_measurement', culture_id=culture.id) }}"
+              data-measurement-form
+            >
+              <div class="field-grid">
+                <label>
+                  <span>Cell concentration (cells/mL)</span>
+                  <input
+                    type="text"
+                    name="measured_cell_concentration"
+                    placeholder="e.g. 1.5e6"
+                    value="{{ '%g' % culture.measured_cell_concentration if culture.measured_cell_concentration is not none else '' }}"
+                  />
+                </label>
+                <label>
+                  <span>Cell slurry volume (mL)</span>
+                  <input
+                    type="text"
+                    name="measured_slurry_volume_ml"
+                    placeholder="e.g. 8"
+                    value="{{ '%g' % culture.measured_slurry_volume_ml if culture.measured_slurry_volume_ml is not none else '' }}"
+                  />
+                </label>
+                <label>
+                  <span>Viability (%)</span>
+                  <input
+                    type="number"
+                    name="measured_viability_percent"
+                    min="0"
+                    max="100"
+                    step="1"
+                    placeholder="e.g. 95"
+                    value="{{ culture.measured_viability_percent if culture.measured_viability_percent is not none else '' }}"
+                  />
+                </label>
+              </div>
+              {% if culture.measured_cells_total %}
+                <p class="form-hint">
+                  Estimated total cells: {{ culture.measured_cells_total | format_cells }}
+                  {% if culture.measured_slurry_volume_ml %}
+                    from {{ culture.measured_slurry_volume_ml | format_volume }} harvested.
+                  {% endif %}
+                </p>
+              {% endif %}
+              <div class="form-actions">
+                <button class="button primary" type="submit">Save measurement</button>
+                {% if culture.measured_cell_concentration or culture.measured_slurry_volume_ml %}
+                  <button class="button ghost" type="submit" name="clear" value="1" formnovalidate>
+                    Clear
+                  </button>
+                {% endif %}
+              </div>
+            </form>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card-header">
+          <h2>Seeding planner</h2>
+          <p>Plan seeding toward a target confluency or dilute to a desired concentration.</p>
+        </header>
+        <form
+          id="seeding-form"
+          class="card-body form"
+          data-culture-id="{{ culture.id }}"
+          data-culture-name="{{ culture.name }}"
+          data-cell-line-name="{{ culture.cell_line.name }}"
+          data-next-passage="{{ culture.next_passage_number }}"
+          data-today="{{ today.isoformat() }}"
+          data-measured-total="{{ '%.6g' % culture.measured_cells_total if culture.measured_cells_total is not none else '' }}"
+        >
+          <div class="mode-toggle" role="radiogroup" aria-label="Seeding workflow">
+            <label>
+              <input type="radio" name="operation" value="split" checked />
+              <span>Split</span>
+            </label>
+            <label>
+              <input type="radio" name="operation" value="seed_split" />
+              <span>Seed &amp; split</span>
+            </label>
+          </div>
+          <section class="planner-subsection" data-seed-section hidden>
+            <header>
+              <h3>Seed portion</h3>
+              <p class="form-hint">Dilute part of the harvest for a specific purpose.</p>
+            </header>
+            <div class="mode-toggle compact" role="radiogroup" aria-label="Dilution input mode">
+              <label>
+                <input type="radio" name="seed_dilution_mode" value="concentration" />
+                <span>By final concentration</span>
+              </label>
+              <label>
+                <input type="radio" name="seed_dilution_mode" value="cells" checked />
+                <span>By cells and volume</span>
+              </label>
+            </div>
+            <div data-seed-dilution-section="concentration" hidden>
+              <div class="field-grid">
+                <label>
+                  <span>Final concentration (cells/mL)</span>
+                  <input
+                    type="text"
+                    name="seed_final_concentration"
+                    value="5e5"
+                    placeholder="e.g. 5e5"
+                    data-required-operation="seed_split"
+                    data-required-seed-mode="concentration"
+                  />
+                </label>
+                <label>
+                  <span>Total volume (mL)</span>
+                  <input
+                    type="text"
+                    name="seed_total_volume_ml"
+                    value="20"
+                    placeholder="e.g. 12"
+                    data-required-operation="seed_split"
+                    data-required-seed-mode="concentration"
+                  />
+                </label>
+              </div>
+            </div>
+            <div data-seed-dilution-section="cells">
+              <div class="field-grid">
+                <label>
+                  <span>Number of cells to seed</span>
+                  <input
+                    type="text"
+                    name="seed_cells_to_seed"
+                    placeholder="e.g. 1.5e6"
+                    data-required-operation="seed_split"
+                    data-required-seed-mode="cells"
+                  />
+                </label>
+                <label>
+                  <span>Volume for those cells (mL)</span>
+                  <input
+                    type="text"
+                    name="seed_volume_per_seed_ml"
+                    placeholder="e.g. 2"
+                    data-required-operation="seed_split"
+                    data-required-seed-mode="cells"
+                  />
+                </label>
+                <label>
+                  <span>Total volume (mL)</span>
+                  <input
+                    type="text"
+                    name="seed_total_volume_ml"
+                    value="20"
+                    placeholder="e.g. 12"
+                    data-required-operation="seed_split"
+                    data-required-seed-mode="cells"
+                  />
+                </label>
+              </div>
+            </div>
+            <label>
+              <span>Purpose</span>
+              <input type="text" name="seed_purpose" placeholder="e.g. Myco testing" />
+            </label>
+            <p class="form-hint">Volumes are entered in mL. Results switch to uL when below 0.01 mL.</p>
+          </section>
+          <section class="planner-subsection" data-target-section>
+            <header>
+              <h3 data-target-heading>Split culture</h3>
+            </header>
+            <label>
+              <span>Vessel</span>
+              <select name="vessel_id" required data-required-operation="split seed_split">
+                <option value="" {% if not default_vessel_id %}selected{% endif %} disabled>
+                  Select a vessel…
+                </option>
+                {% for vessel in vessels %}
+                  <option
+                    value="{{ vessel.id }}"
+                    {% if default_vessel_id and vessel.id == default_vessel_id %}selected{% endif %}
+                  >
+                    {{ vessel.name }} ({{ '%g' % vessel.area_cm2 }} cm²)
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+            <div class="field-grid">
+              <label>
+                <span>Target confluency (%)</span>
+                <input
+                  type="number"
+                  name="target_confluency"
+                  value="80"
+                  min="1"
+                  max="100"
+                  data-required-operation="split seed_split"
+                />
+              </label>
+              <label>
+                <span>Days until split</span>
+                <input
+                  type="number"
+                  name="target_days"
+                  value="3"
+                  min="0"
+                  step="0.5"
+                  data-required-operation="split seed_split"
+                />
+              </label>
+              <label>
+                <span>Additional hours</span>
+                <input type="number" name="additional_hours" value="0" min="0" step="1" />
+              </label>
+              <label>
+                <span>Number of vessels</span>
+                <input
+                  type="number"
+                  name="vessels_used"
+                  value="1"
+                  min="1"
+                  step="1"
+                  data-required-operation="split seed_split"
+                />
+              </label>
+            </div>
+            <label>
+              <span>Doubling time override (hours)</span>
+              <input
+                type="text"
+                name="doubling_time_override"
+                placeholder="Default: {{ culture.cell_line.display_doubling_time() }}"
+              />
+            </label>
+          </section>
+          <section class="planner-subsection" data-remainder-options>
+            <header>
+              <h3>Remainder outcome</h3>
+              <p class="form-hint">Choose how the remainder is seeded.</p>
+            </header>
+            <div class="mode-toggle compact" role="radiogroup" aria-label="Remainder outcome">
+              <label>
+                <input type="radio" name="remainder_mode" value="calculate" checked data-required-operation="split seed_split" />
+                <span>Calculate plan</span>
+              </label>
+              <label>
+                <input type="radio" name="remainder_mode" value="all" data-required-operation="split seed_split" />
+                <span>Seed everything</span>
+              </label>
+              <label>
+                <input type="radio" name="remainder_mode" value="manual" data-required-operation="split seed_split" />
+                <span>Free form</span>
+              </label>
+            </div>
+            <div data-remainder-section="manual" hidden>
+              <label>
+                <span>Cells to seed (total)</span>
+                <input
+                  type="text"
+                  name="remainder_manual_seeded"
+                  placeholder="e.g. 2e6"
+                  data-required-operation="split seed_split"
+                  data-required-remainder="manual"
+                  disabled
+                />
+              </label>
+            </div>
+          </section>
+          <label>
+            <span>Cell concentration (cells/mL)</span>
+            <input
+              type="text"
+              name="cell_concentration"
+              value="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '1e6' }}"
+              placeholder="e.g. 1.5e6"
+              required
+            />
+          </label>
+          <button class="button primary" type="submit">Calculate plan</button>
+        </form>
+        <div id="seeding-result" class="card-footer muted">
+          <p>Enter parameters above and calculate to see seeding guidance.</p>
+        </div>
+      </article>
+
+      <article class="card">
+        <header class="card-header">
+          <h2>Log a new passage</h2>
+          <p>Next passage number: P{{ culture.next_passage_number }}</p>
+        </header>
+        {% if culture.is_active %}
+          <form
+            id="passage-form"
+            class="card-body form"
+            method="post"
+            action="{{ url_for('add_passage', culture_id=culture.id) }}"
+            data-passage-form
+            data-culture-ended="false"
+            data-culture-name="{{ culture.name }}"
+            data-next-passage="{{ culture.next_passage_number }}"
+          >
+            <input
+              type="hidden"
+              name="cell_concentration"
+              id="passage-cell-concentration"
+              value="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '' }}"
+            />
+            <div class="field-grid">
+              <label>
+                <span>Date</span>
+                <input type="date" name="date" value="{{ today }}" />
+              </label>
+              <label>
+                <span>Vessel</span>
+                <select name="vessel_id" id="passage-vessel-id">
+                  <option value="">Select a vessel…</option>
+                  {% for vessel in vessels %}
+                    <option value="{{ vessel.id }}">{{ vessel.name }} ({{ '%g' % vessel.area_cm2 }} cm²)</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>
+                <span>Number of vessels</span>
+                <input
+                  type="number"
+                  name="vessels_used"
+                  id="passage-vessels-used"
+                  min="1"
+                  step="1"
+                  placeholder="e.g. 1"
+                />
+              </label>
+              <label class="wide">
+                <span>Media</span>
+                <textarea
+                  name="media"
+                  rows="2"
+                  placeholder="Document media formulation"
+                  id="media-field"
+                >{% if last_passage and last_passage.media %}{{ last_passage.media }}{% endif %}</textarea>
+              </label>
+              <label class="checkbox" {% if not last_passage or not last_passage.media %}data-disabled="true"{% endif %}>
+                <input
+                  type="checkbox"
+                  name="use_previous_media"
+                  id="use-previous-media"
+                  value="1"
+                  {% if last_passage and last_passage.media %}checked{% else %}disabled{% endif %}
+                  data-media="{{ last_passage.media if last_passage else '' }}"
+                />
+                <span>Use previous passage media</span>
+              </label>
+              <label>
+                <span>Cells seeded (cells)</span>
+                <input
+                  type="text"
+                  name="seeded_cells"
+                  id="passage-seeded-cells"
+                  placeholder="e.g. 1.5e6"
+                  value="{{ '%g' % last_passage.seeded_cells if last_passage and last_passage.seeded_cells is not none else '' }}"
+                />
+              </label>
+              <label>
+                <span>Measured yield (M cells)</span>
+                <input
+                  type="text"
+                  name="measured_yield_millions"
+                  id="passage-measured-yield"
+                  placeholder="e.g. 24"
+                  value="{{ default_measured_yield_display or '' }}"
+                />
+              </label>
+              <label>
+                <span>Viability (%)</span>
+                <input
+                  type="number"
+                  name="measured_viability_percent"
+                  id="passage-measured-viability"
+                  min="0"
+                  max="100"
+                  step="1"
+                  placeholder="e.g. 95"
+                  value="{{ default_viability_percent if default_viability_percent is not none else '' }}"
+                />
+              </label>
+              <label>
+                <span>Pre-split confluence (%)</span>
+                <input
+                  type="number"
+                  name="pre_split_confluence_percent"
+                  id="passage-pre-split-confluence"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="{{ default_pre_split_confluence if default_pre_split_confluence is not none else '' }}"
+                  placeholder="e.g. 80"
+                />
+              </label>
+              <label>
+                <span>Doubling time (hours)</span>
+                <input
+                  type="text"
+                  name="doubling_time_hours"
+                  placeholder="e.g. 22"
+                  value="{{ last_passage.doubling_time_hours if last_passage else culture.cell_line.average_doubling_time }}"
+                />
+              </label>
+              <label class="wide">
+                <span>Notes</span>
+                <textarea
+                  name="notes"
+                  id="notes-field"
+                  rows="2"
+                  placeholder="Observations"
+                ></textarea>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="button primary" type="submit">Save passage</button>
+              <button class="button ghost" type="button" data-copy-passage-label>Copy label</button>
+            </div>
+          </form>
+        {% else %}
+          <div class="card-body">
+            <p class="empty-state">
+              This culture has been ended. Reactivate it to log additional passages.
+            </p>
+          </div>
+        {% endif %}
+      </article>
+    </div>
+  </section>
+{% endblock %}
