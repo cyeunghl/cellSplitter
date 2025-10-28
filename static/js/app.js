@@ -107,6 +107,82 @@ function formatCellsForLabel(value) {
   return formatted ? `${sign}${formatted}` : '—';
 }
 
+function pickNumericValue(values) {
+  if (!Array.isArray(values)) {
+    return null;
+  }
+  for (const value of values) {
+    const numeric = parseNumericInput(value);
+    if (numeric !== null && Number.isFinite(numeric)) {
+      return numeric;
+    }
+  }
+  return null;
+}
+
+function computeSeededCells({
+  remainderMode,
+  manualValue,
+  measuredTotal,
+  splitData,
+  seedData,
+}) {
+  const fallback = () =>
+    pickNumericValue([
+      splitData?.required_cells_total,
+      splitData?.required_cells,
+      splitData?.cells_needed,
+      splitData?.final_cells_total,
+      seedData?.required_cells_total,
+      seedData?.cells_needed,
+    ]);
+
+  if (remainderMode === 'manual') {
+    const numeric = parseNumericInput(manualValue);
+    if (numeric === null || !Number.isFinite(numeric)) {
+      return { value: null, error: 'Enter cells seeded when using free form.' };
+    }
+    return { value: numeric, error: null };
+  }
+
+  if (remainderMode === 'all') {
+    if (measuredTotal === null || measuredTotal === undefined || !Number.isFinite(measuredTotal)) {
+      return {
+        value: fallback(),
+        error: 'Record measured yield before seeding everything.',
+      };
+    }
+    const seedPortion = pickNumericValue([
+      seedData?.cells_needed,
+      seedData?.required_cells_total,
+      seedData?.required_cells,
+    ]);
+    const remainder = measuredTotal - (seedPortion || 0);
+    return { value: remainder > 0 ? remainder : 0, error: null };
+  }
+
+  return { value: fallback(), error: null };
+}
+
+function applyGeneratedNote(field, text) {
+  if (!field) {
+    return;
+  }
+  const normalized = text ? String(text).trim() : '';
+  const existingGenerated = field.dataset.generatedNote || '';
+  if (!normalized) {
+    field.dataset.generatedNote = '';
+    return;
+  }
+  if (!field.value || field.value === existingGenerated) {
+    field.value = normalized;
+    field.dataset.generatedNote = normalized;
+  } else if (!field.value.includes(normalized)) {
+    field.value = `${field.value}\n\n${normalized}`;
+    field.dataset.generatedNote = normalized;
+  }
+}
+
 function parseJSONScript(id) {
   const script = document.getElementById(id);
   if (!script) {
@@ -338,10 +414,30 @@ function attachPassageLabelCopyHandler() {
   });
 }
 
-function fillPassageFormFromSeeding(data, { submit = false, extraNotes = [] } = {}) {
+function fillPassageFormFromSeeding(data, { submit = false, seedData = null } = {}) {
   const passageForm = document.querySelector('[data-passage-form]');
-  if (!passageForm) {
+  if (!passageForm || !data) {
     return;
+  }
+
+  const seedingForm = document.querySelector('#seeding-form');
+  const remainderMode = seedingForm?.dataset.remainderMode || 'calculate';
+  const manualField = seedingForm?.querySelector('input[name="remainder_manual_seeded"]');
+  const manualValue = manualField ? manualField.value : '';
+  const measuredTotal = seedingForm?.dataset.measuredTotal
+    ? parseNumericInput(seedingForm.dataset.measuredTotal)
+    : null;
+  const seededResult = computeSeededCells({
+    remainderMode,
+    manualValue,
+    measuredTotal,
+    splitData: data,
+    seedData,
+  });
+
+  const hadError = Boolean(seededResult.error && remainderMode !== 'calculate');
+  if (hadError) {
+    window.alert(seededResult.error);
   }
 
   const vesselInput = passageForm.querySelector('#passage-vessel-id');
@@ -364,10 +460,21 @@ function fillPassageFormFromSeeding(data, { submit = false, extraNotes = [] } = 
 
   const seededCellsInput = passageForm.querySelector('#passage-seeded-cells');
   if (seededCellsInput) {
-    if (data.mode === MODE_DILUTION) {
-      seededCellsInput.value = data.cells_needed ?? '';
+    let seededValue = seededResult.value;
+    if (
+      (seededValue === null || seededValue === undefined || Number.isNaN(seededValue)) &&
+      !hadError
+    ) {
+      if (data.mode === MODE_DILUTION) {
+        seededValue = data.cells_needed ?? '';
+      } else {
+        seededValue = data.required_cells_total ?? '';
+      }
+    }
+    if (seededValue !== null && seededValue !== undefined && seededValue !== '') {
+      seededCellsInput.value = seededValue;
     } else {
-      seededCellsInput.value = data.required_cells_total ?? '';
+      seededCellsInput.value = '';
     }
   }
 
@@ -387,28 +494,15 @@ function fillPassageFormFromSeeding(data, { submit = false, extraNotes = [] } = 
 
   const notesField = passageForm.querySelector('#notes-field');
   if (notesField) {
-    const suggestions = [];
-    if (data.note_suggestion) {
-      suggestions.push(data.note_suggestion);
+    const operation = seedingForm?.dataset.operation || (seedData ? MODE_SEED_SPLIT : 'split');
+    let noteText = '';
+    if (operation === MODE_SEED_SPLIT) {
+      const purpose = seedingForm?.querySelector('input[name="seed_purpose"]')?.value?.trim();
+      noteText = purpose ? `Seed & split (${purpose})` : 'Seed & split';
+    } else {
+      noteText = 'Split culture';
     }
-    if (Array.isArray(extraNotes)) {
-      for (const note of extraNotes) {
-        if (note) {
-          suggestions.push(note);
-        }
-      }
-    }
-    if (suggestions.length) {
-      const combined = suggestions.join('\n');
-      const existingGenerated = notesField.dataset.generatedNote || '';
-      if (!notesField.value || notesField.value === existingGenerated) {
-        notesField.value = combined;
-        notesField.dataset.generatedNote = combined;
-      } else if (!notesField.value.includes(combined)) {
-        notesField.value = `${notesField.value}\n\n${combined}`;
-        notesField.dataset.generatedNote = combined;
-      }
-    }
+    applyGeneratedNote(notesField, noteText);
   }
 
   const mediaCheckbox = passageForm.querySelector('#use-previous-media');
@@ -433,15 +527,7 @@ function prepareSeedingResultActions(container, data) {
   actionRow.className = 'form-actions';
 
   const confluencyData = data && data.mode === MODE_SEED_SPLIT ? data.split : data;
-  const extraNotes = [];
-  if (data && data.mode === MODE_SEED_SPLIT && data.seed) {
-    if (data.seed.note_suggestion) {
-      extraNotes.push(data.seed.note_suggestion);
-    }
-    if (data.seedPurpose) {
-      extraNotes.push(`Seed purpose: ${data.seedPurpose}`);
-    }
-  }
+  const seedData = data && data.mode === MODE_SEED_SPLIT ? data.seed : null;
 
   if (passageForm && confluencyData && confluencyData.mode === MODE_CONFLUENCY) {
     const fillButton = document.createElement('button');
@@ -449,7 +535,7 @@ function prepareSeedingResultActions(container, data) {
     fillButton.className = 'button secondary';
     fillButton.textContent = 'Fill passage form';
     fillButton.addEventListener('click', () => {
-      fillPassageFormFromSeeding(confluencyData, { submit: false, extraNotes });
+      fillPassageFormFromSeeding(confluencyData, { submit: false, seedData });
     });
 
     const commitButton = document.createElement('button');
@@ -461,7 +547,7 @@ function prepareSeedingResultActions(container, data) {
       if (!confirmed) {
         return;
       }
-      fillPassageFormFromSeeding(confluencyData, { submit: true, extraNotes });
+      fillPassageFormFromSeeding(confluencyData, { submit: true, seedData });
     });
 
     actionRow.append(fillButton, commitButton);
@@ -472,7 +558,7 @@ function prepareSeedingResultActions(container, data) {
   labelButton.className = 'button ghost';
   labelButton.textContent = 'Copy label text';
   labelButton.addEventListener('click', () => {
-    copyLabelToClipboard(confluencyData || data);
+    copyLabelToClipboard(data);
   });
   actionRow.append(labelButton);
 
@@ -770,7 +856,7 @@ function attachSeedingFormHandler() {
       }
 
       const seedMode =
-        form.querySelector('input[name="seed_dilution_mode"]:checked')?.value || 'concentration';
+        form.querySelector('input[name="seed_dilution_mode"]:checked')?.value || 'cells';
       const seedPayload = {
         ...basePayload,
         mode: MODE_DILUTION,
@@ -852,37 +938,55 @@ function attachSeedingFormHandler() {
   });
 }
 
-async function copyLabelToClipboard(data) {
+async function copyLabelToClipboard(resultData) {
   const form = document.querySelector('#seeding-form');
-  if (!form) {
+  if (!form || !resultData) {
     return;
   }
-  if (!data) {
-    return;
+
+  let data = resultData;
+  let seedData = null;
+  if (resultData && resultData.mode === MODE_SEED_SPLIT) {
+    data = resultData.split;
+    seedData = resultData.seed;
   }
 
   const today = form.dataset.today || new Date().toISOString().slice(0, 10);
   const cultureName = form.dataset.cultureName || '';
   const nextPassageRaw = form.dataset.nextPassage || '';
-  let cellsText = '—';
-  if (data.mode === MODE_DILUTION) {
-    cellsText = formatCellsForLabel(data.cells_needed);
-  } else {
-    const candidates = [
-      data.required_cells_total,
-      data.required_cells,
-      data.final_cells_total,
-    ];
-    for (const candidate of candidates) {
-      const formatted = formatCellsForLabel(candidate);
-      if (formatted !== '—') {
-        cellsText = formatted;
-        break;
-      }
-    }
+  const remainderMode = form.dataset.remainderMode || 'calculate';
+  const manualField = form.querySelector('input[name="remainder_manual_seeded"]');
+  const manualValue = manualField ? manualField.value : '';
+  const measuredTotal = form.dataset.measuredTotal
+    ? parseNumericInput(form.dataset.measuredTotal)
+    : null;
+  const seededResult = computeSeededCells({
+    remainderMode,
+    manualValue,
+    measuredTotal,
+    splitData: data,
+    seedData,
+  });
+  if (seededResult.error && remainderMode !== 'calculate') {
+    window.alert(seededResult.error);
+    return;
   }
 
-  if (cellsText === '—') {
+  let seededNumeric = seededResult.value;
+  if (seededNumeric === null || seededNumeric === undefined || Number.isNaN(seededNumeric)) {
+    seededNumeric = pickNumericValue([
+      data?.required_cells_total,
+      data?.required_cells,
+      data?.cells_needed,
+      data?.final_cells_total,
+      seedData?.cells_needed,
+    ]);
+  }
+
+  let cellsText = '—';
+  if (Number.isFinite(seededNumeric)) {
+    cellsText = formatCellsForLabel(seededNumeric);
+  } else if (data) {
     cellsText =
       data.cells_needed_formatted ||
       data.required_cells_total_formatted ||
@@ -939,6 +1043,7 @@ function attachSeedingOperationSwitcher() {
   const targetHeading = form.querySelector('[data-target-heading]');
   const operationRadios = form.querySelectorAll('input[name="operation"]');
   const seedModeRadios = form.querySelectorAll('input[name="seed_dilution_mode"]');
+  const remainderRadios = form.querySelectorAll('input[name="remainder_mode"]');
 
   const updateModeLabels = () => {
     const modeLabels = form.querySelectorAll('.mode-toggle label');
@@ -953,7 +1058,7 @@ function attachSeedingOperationSwitcher() {
 
   const updateSeedMode = () => {
     const operation = form.dataset.operation || 'split';
-    const mode = form.dataset.seedMode || 'concentration';
+    const mode = form.dataset.seedMode || 'cells';
     const sections = form.querySelectorAll('[data-seed-dilution-section]');
     sections.forEach((section) => {
       const isActive = operation === MODE_SEED_SPLIT && section.dataset.seedDilutionSection === mode;
@@ -967,6 +1072,29 @@ function attachSeedingOperationSwitcher() {
         const enable = isActive && requiresOperation && allowsMode;
         input.disabled = !enable;
         input.required = enable && (requiredOperations.length > 0 || !!requiredSeedMode);
+      });
+    });
+    updateModeLabels();
+  };
+
+  const updateRemainderMode = () => {
+    const operation = form.dataset.operation || 'split';
+    const selected = form.querySelector('input[name="remainder_mode"]:checked');
+    const mode = selected ? selected.value : 'calculate';
+    form.dataset.remainderMode = mode;
+    const sections = form.querySelectorAll('[data-remainder-section]');
+    sections.forEach((section) => {
+      const isActive = section.dataset.remainderSection === mode;
+      section.hidden = !isActive;
+      const inputs = section.querySelectorAll('input, select, textarea');
+      inputs.forEach((input) => {
+        const requiredOperations = (input.dataset.requiredOperation || '').split(' ').filter(Boolean);
+        const allowsOperation = !requiredOperations.length || requiredOperations.includes(operation);
+        const requiredModes = (input.dataset.requiredRemainder || '').split(' ').filter(Boolean);
+        const allowsMode = !requiredModes.length || requiredModes.includes(mode);
+        const enable = isActive && allowsOperation && allowsMode;
+        input.disabled = !enable;
+        input.required = enable && (requiredModes.length > 0 || requiredOperations.length > 0);
       });
     });
     updateModeLabels();
@@ -1014,11 +1142,12 @@ function attachSeedingOperationSwitcher() {
     }
 
     updateSeedMode();
+    updateRemainderMode();
   };
 
   const updateSeedModeRadio = () => {
     const selected = form.querySelector('input[name="seed_dilution_mode"]:checked');
-    const mode = selected ? selected.value : 'concentration';
+    const mode = selected ? selected.value : 'cells';
     form.dataset.seedMode = mode;
     updateSeedMode();
   };
@@ -1031,7 +1160,12 @@ function attachSeedingOperationSwitcher() {
     radio.addEventListener('change', updateSeedModeRadio);
   });
 
+  remainderRadios.forEach((radio) => {
+    radio.addEventListener('change', updateRemainderMode);
+  });
+
   updateSeedModeRadio();
+  updateRemainderMode();
   updateOperation();
 }
 
@@ -1459,7 +1593,7 @@ function initBulkProcessing() {
     if (!row) {
       return;
     }
-    const mode = row.dataset.seedMode || 'concentration';
+    const mode = row.dataset.seedMode || 'cells';
     const sections = row.querySelectorAll('[data-bulk-seed-dilution]');
     sections.forEach((section) => {
       const isActive = section.dataset.bulkSeedDilution === mode;
@@ -1467,6 +1601,29 @@ function initBulkProcessing() {
       const inputs = section.querySelectorAll('input, select, textarea');
       inputs.forEach((input) => {
         input.disabled = !isActive;
+      });
+    });
+  };
+
+  const updateBulkRemainderMode = (row) => {
+    if (!row) {
+      return;
+    }
+    const operation = row.dataset.operation || 'split';
+    const mode = row.dataset.remainderMode || 'calculate';
+    const sections = row.querySelectorAll('[data-bulk-remainder-mode]');
+    sections.forEach((section) => {
+      const isActive = section.dataset.bulkRemainderMode === mode;
+      section.hidden = !isActive;
+      const inputs = section.querySelectorAll('input, select, textarea');
+      inputs.forEach((input) => {
+        const requiredOperations = (input.dataset.requiredOperation || '').split(' ').filter(Boolean);
+        const allowsOperation = !requiredOperations.length || requiredOperations.includes(operation);
+        const requiredModes = (input.dataset.requiredRemainder || '').split(' ').filter(Boolean);
+        const allowsMode = !requiredModes.length || requiredModes.includes(mode);
+        const enable = isActive && allowsOperation && allowsMode;
+        input.disabled = !enable;
+        input.required = enable && (requiredModes.length > 0 || requiredOperations.length > 0);
       });
     });
   };
@@ -1497,17 +1654,7 @@ function initBulkProcessing() {
         operation === MODE_SEED_SPLIT ? 'Split remainder' : 'Split culture';
     }
     updateBulkSeedMode(row);
-  };
-
-  const appendNoteSuggestion = (notesField, suggestion) => {
-    if (!notesField || !suggestion) {
-      return;
-    }
-    const existing = notesField.value || '';
-    if (existing.includes(suggestion)) {
-      return;
-    }
-    notesField.value = existing ? `${existing}\n${suggestion}` : suggestion;
+    updateBulkRemainderMode(row);
   };
 
   const renderPlannerRows = (ids) => {
@@ -1526,7 +1673,11 @@ function initBulkProcessing() {
       row.dataset.nextPassage =
         culture.next_passage_number != null ? culture.next_passage_number : 1;
       row.dataset.operation = 'split';
-      row.dataset.seedMode = 'concentration';
+      row.dataset.seedMode = 'cells';
+      row.dataset.remainderMode = 'calculate';
+      if (culture.measured_cells_total != null) {
+        row.dataset.measuredTotal = String(culture.measured_cells_total);
+      }
 
       const cultureCell = row.insertCell();
       const strong = document.createElement('strong');
@@ -1569,15 +1720,15 @@ function initBulkProcessing() {
             </header>
             <div class="mode-toggle compact" role="radiogroup" aria-label="Seed dilution mode">
               <label>
-                <input type="radio" class="bulk-seed-mode" name="bulk-seed-mode-${id}" value="concentration" checked />
+                <input type="radio" class="bulk-seed-mode" name="bulk-seed-mode-${id}" value="concentration" />
                 <span>Final concentration</span>
               </label>
               <label>
-                <input type="radio" class="bulk-seed-mode" name="bulk-seed-mode-${id}" value="cells" />
+                <input type="radio" class="bulk-seed-mode" name="bulk-seed-mode-${id}" value="cells" checked />
                 <span>Cells &amp; volume</span>
               </label>
             </div>
-            <div data-bulk-seed-dilution="concentration">
+            <div data-bulk-seed-dilution="concentration" hidden>
               <div class="field-grid">
                 <label>
                   <span>Final concentration (cells/mL)</span>
@@ -1589,7 +1740,7 @@ function initBulkProcessing() {
                 </label>
               </div>
             </div>
-            <div data-bulk-seed-dilution="cells" hidden>
+            <div data-bulk-seed-dilution="cells">
               <div class="field-grid">
                 <label>
                   <span>Cells to seed (cells)</span>
@@ -1634,6 +1785,32 @@ function initBulkProcessing() {
               <span>Doubling time override (h)</span>
               <input type="text" class="bulk-doubling-override" />
             </label>
+          </section>
+          <section class="planner-subsection" data-bulk-remainder-section>
+            <header>
+              <h3>Remainder outcome</h3>
+              <p class="form-hint">Choose how the remainder is seeded.</p>
+            </header>
+            <div class="mode-toggle compact" role="radiogroup" aria-label="Remainder outcome">
+              <label>
+                <input type="radio" class="bulk-remainder-mode" name="bulk-remainder-${id}" value="calculate" checked />
+                <span>Calculate plan</span>
+              </label>
+              <label>
+                <input type="radio" class="bulk-remainder-mode" name="bulk-remainder-${id}" value="all" />
+                <span>Seed everything</span>
+              </label>
+              <label>
+                <input type="radio" class="bulk-remainder-mode" name="bulk-remainder-${id}" value="manual" />
+                <span>Free form</span>
+              </label>
+            </div>
+            <div data-bulk-remainder-mode="manual" hidden>
+              <label>
+                <span>Cells to seed (total)</span>
+                <input type="text" class="bulk-remainder-manual" data-required-remainder="manual" />
+              </label>
+            </div>
           </section>
           <label>
             <span>Starting concentration (cells/mL)</span>
@@ -1758,6 +1935,16 @@ function initBulkProcessing() {
           if (radio.checked) {
             row.dataset.seedMode = radio.value;
             updateBulkSeedMode(row);
+          }
+        });
+      });
+
+      const remainderRadios = row.querySelectorAll('.bulk-remainder-mode');
+      remainderRadios.forEach((radio) => {
+        radio.addEventListener('change', () => {
+          if (radio.checked) {
+            row.dataset.remainderMode = radio.value;
+            updateBulkRemainderMode(row);
           }
         });
       });
@@ -1998,251 +2185,560 @@ function initBulkProcessing() {
   };
 
   const calculateSeedingForRow = async (row, cultureId) => {
-    if (!row) {
-      return;
-    }
-    const resultContainer = row.querySelector('[data-bulk-result]');
+  if (!row) {
+    return;
+  }
+
+  const culture = cultureMap.get(cultureId);
+  const cultureName = culture ? culture.name : `Culture ${cultureId}`;
+  const resultContainer = row.querySelector('[data-bulk-result]');
+  if (resultContainer) {
+    resultContainer.textContent = 'Calculating…';
+  }
+
+  const concentrationField = row.querySelector('.bulk-cell-concentration');
+  const cellConcentration = concentrationField?.value || '';
+  if (!cellConcentration.trim()) {
     if (resultContainer) {
-      resultContainer.textContent = 'Calculating…';
+      resultContainer.innerHTML =
+        '<p class="error">Enter the starting cell concentration before calculating.</p>';
     }
-    const cellConcentration = row.querySelector('.bulk-cell-concentration')?.value || '';
-    if (!cellConcentration.trim()) {
+    return;
+  }
+
+  let measuredTotal = null;
+  if (row.dataset.measuredTotal) {
+    measuredTotal = parseNumericInput(row.dataset.measuredTotal);
+  }
+  if (
+    (measuredTotal === null || Number.isNaN(measuredTotal)) &&
+    culture?.measured_cell_concentration != null &&
+    culture?.measured_slurry_volume_ml != null
+  ) {
+    measuredTotal =
+      culture.measured_cell_concentration * culture.measured_slurry_volume_ml;
+    if (Number.isFinite(measuredTotal)) {
+      row.dataset.measuredTotal = String(measuredTotal);
+    }
+  }
+  if (!Number.isFinite(measuredTotal)) {
+    measuredTotal = null;
+  }
+
+  const manualValue = row.querySelector('.bulk-remainder-manual')?.value || '';
+  const remainderMode = row.dataset.remainderMode || 'calculate';
+  const operation = row.dataset.operation || 'split';
+
+  const buildSplitPayload = () => {
+    const vesselSelect = row.querySelector('.bulk-vessel');
+    if (!vesselSelect || !vesselSelect.value) {
       if (resultContainer) {
         resultContainer.innerHTML =
-          '<p class="error">Enter the starting cell concentration before calculating.</p>';
+          '<p class="error">Select a vessel before calculating the seeding plan.</p>';
       }
-      return;
+      return null;
     }
-
-    const operation = row.dataset.operation || 'split';
-
-    const buildSplitPayload = () => {
-      const vesselSelect = row.querySelector('.bulk-vessel');
-      if (!vesselSelect || !vesselSelect.value) {
-        if (resultContainer) {
-          resultContainer.innerHTML =
-            '<p class="error">Select a vessel before calculating the seeding plan.</p>';
-        }
-        return null;
-      }
-      const payload = {
-        culture_id: cultureId,
-        mode: MODE_CONFLUENCY,
-        cell_concentration: cellConcentration,
-        vessel_id: Number.parseInt(vesselSelect.value, 10),
-        target_confluency: row.querySelector('.bulk-target-confluency')?.value || '',
-        vessels_used: row.querySelector('.bulk-vessels-used')?.value || '',
-      };
-      const daysInput = row.querySelector('.bulk-hours');
-      if (daysInput && daysInput.value) {
-        const days = Number.parseFloat(daysInput.value);
-        if (Number.isFinite(days)) {
-          payload.target_hours = String(days * 24);
-        }
-      }
-      const overrideInput = row.querySelector('.bulk-doubling-override');
-      if (overrideInput && overrideInput.value) {
-        payload.doubling_time_override = overrideInput.value;
-      }
-      return payload;
+    const payload = {
+      culture_id: cultureId,
+      mode: MODE_CONFLUENCY,
+      cell_concentration: cellConcentration,
+      vessel_id: Number.parseInt(vesselSelect.value, 10),
+      target_confluency: row.querySelector('.bulk-target-confluency')?.value || '',
+      vessels_used: row.querySelector('.bulk-vessels-used')?.value || '',
     };
-
-    try {
-      if (operation !== MODE_SEED_SPLIT) {
-        const splitPayload = buildSplitPayload();
-        if (!splitPayload) {
-          return;
-        }
-        const response = await fetch('/api/calc-seeding', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(splitPayload),
-        });
-        let data;
-        try {
-          data = await parseJsonResponse(response);
-        } catch (parseError) {
-          console.error('Failed to parse bulk seeding response', parseError);
-          if (resultContainer) {
-            resultContainer.innerHTML =
-              '<p class="error">Server returned an unexpected response. Please try again.</p>';
-          }
-          return;
-        }
-        if (!response.ok) {
-          if (resultContainer) {
-            resultContainer.innerHTML = `<p class="error">${
-              data.error || 'Calculation failed.'
-            }</p>`;
-          }
-          return;
-        }
-
-        if (resultContainer) {
-          resultContainer.innerHTML = buildSeedingSummary(data);
-        }
-
-        const seededInput = row.querySelector('.bulk-seeded');
-        if (seededInput) {
-          seededInput.value = data.required_cells_total ?? '';
-        }
-
-        const vesselSelect = row.querySelector('.bulk-vessel');
-        if (vesselSelect && data.vessel_id) {
-          vesselSelect.value = data.vessel_id;
-        }
-
-        const vesselsUsedInput = row.querySelector('.bulk-vessels-used');
-        if (vesselsUsedInput && data.vessels_used !== undefined) {
-          vesselsUsedInput.value = data.vessels_used ?? '';
-        }
-
-        const notesField = row.querySelector('.bulk-notes');
-        appendNoteSuggestion(notesField, data.note_suggestion);
-
-        if (data.required_cells_total !== undefined) {
-          row.dataset.calculatedSeeded = data.required_cells_total;
-          row.dataset.calculatedSeededDisplay =
-            data.required_cells_total_formatted || formatCells(data.required_cells_total);
-        }
-
-        row.dataset.lastCalculation = JSON.stringify(data);
-        return;
+    const daysInput = row.querySelector('.bulk-hours');
+    if (daysInput && daysInput.value) {
+      const days = Number.parseFloat(daysInput.value);
+      if (Number.isFinite(days)) {
+        payload.target_hours = String(days * 24);
       }
+    }
+    const overrideInput = row.querySelector('.bulk-doubling-override');
+    if (overrideInput && overrideInput.value) {
+      payload.doubling_time_override = overrideInput.value;
+    }
+    return payload;
+  };
 
-      const seedMode = row.dataset.seedMode || 'concentration';
-      const seedPayload = {
-        culture_id: cultureId,
-        mode: MODE_DILUTION,
-        cell_concentration: cellConcentration,
-        dilution_input_mode: seedMode,
-      };
-
-      if (seedMode === 'cells') {
-        const cellsValue = row.querySelector('.bulk-seed-cells')?.value || '';
-        const volumePer = row.querySelector('.bulk-seed-volume-per')?.value || '';
-        const totalValue = row
-          .querySelector('.bulk-seed-total-volume[data-seed-mode="cells"]')
-          ?.value || '';
-        if (!cellsValue.trim() || !volumePer.trim() || !totalValue.trim()) {
-          if (resultContainer) {
-            resultContainer.innerHTML =
-              '<p class="error">Provide cells, per-portion volume, and total volume for the seed portion.</p>';
-          }
-          return;
-        }
-        seedPayload.cells_to_seed = cellsValue;
-        seedPayload.volume_per_seed_ml = volumePer;
-        seedPayload.total_volume_ml = totalValue;
-      } else {
-        const finalConc = row.querySelector('.bulk-seed-final-concentration')?.value || '';
-        const totalValue = row
-          .querySelector('.bulk-seed-total-volume[data-seed-mode="concentration"]')
-          ?.value || '';
-        if (!finalConc.trim() || !totalValue.trim()) {
-          if (resultContainer) {
-            resultContainer.innerHTML =
-              '<p class="error">Provide the final concentration and total volume for the seed portion.</p>';
-          }
-          return;
-        }
-        seedPayload.final_concentration = finalConc;
-        seedPayload.total_volume_ml = totalValue;
-      }
-
+  try {
+    if (operation !== MODE_SEED_SPLIT) {
       const splitPayload = buildSplitPayload();
       if (!splitPayload) {
         return;
       }
-
-      const [seedResponse, splitResponse] = await Promise.all([
-        fetch('/api/calc-seeding', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(seedPayload),
-        }),
-        fetch('/api/calc-seeding', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(splitPayload),
-        }),
-      ]);
-
-      let seedData;
-      let splitData;
+      const response = await fetch('/api/calc-seeding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(splitPayload),
+      });
+      let data;
       try {
-        seedData = await parseJsonResponse(seedResponse);
-        splitData = await parseJsonResponse(splitResponse);
+        data = await parseJsonResponse(response);
       } catch (parseError) {
-        console.error('Failed to parse bulk seed & split response', parseError);
+        console.error('Failed to parse bulk seeding response', parseError);
         if (resultContainer) {
           resultContainer.innerHTML =
             '<p class="error">Server returned an unexpected response. Please try again.</p>';
         }
         return;
       }
-
-      if (!seedResponse.ok) {
+      if (!response.ok) {
         if (resultContainer) {
           resultContainer.innerHTML = `<p class="error">${
-            seedData.error || 'Seed calculation failed.'
+            data.error || 'Calculation failed.'
           }</p>`;
         }
         return;
       }
-      if (!splitResponse.ok) {
-        if (resultContainer) {
-          resultContainer.innerHTML = `<p class="error">${
-            splitData.error || 'Split calculation failed.'
-          }</p>`;
-        }
-        return;
-      }
-
-      const seedPurpose = row.querySelector('.bulk-seed-purpose')?.value?.trim() || '';
-      if (seedPurpose) {
-        const purposeNote = `Seed purpose: ${seedPurpose}`;
-        if (seedData.note_suggestion) {
-          seedData.note_suggestion = `${seedData.note_suggestion} ${purposeNote}`;
-        } else {
-          seedData.note_suggestion = purposeNote;
-        }
-      }
-
-      const combined = {
-        mode: MODE_SEED_SPLIT,
-        seed: seedData,
-        split: splitData,
-        seedPurpose,
-      };
 
       if (resultContainer) {
-        resultContainer.innerHTML = buildSeedingSummary(combined);
+        resultContainer.innerHTML = buildSeedingSummary(data);
       }
 
       const seededInput = row.querySelector('.bulk-seeded');
+      const seededResult = computeSeededCells({
+        remainderMode,
+        manualValue,
+        measuredTotal,
+        splitData: data,
+      });
+      const hasError = Boolean(seededResult.error && remainderMode !== 'calculate');
+      if (hasError) {
+        window.alert(`${cultureName}: ${seededResult.error}`);
+      }
+      let seededValue = seededResult.value;
+      if (
+        (seededValue === null || seededValue === undefined || Number.isNaN(seededValue)) &&
+        !hasError
+      ) {
+        seededValue = data.required_cells_total ?? '';
+      }
       if (seededInput) {
-        seededInput.value = splitData.required_cells_total ?? '';
+        seededInput.value = seededValue ?? '';
+      }
+
+      const numericSeeded = Number.isFinite(seededResult.value)
+        ? seededResult.value
+        : parseNumericInput(seededValue);
+      if (Number.isFinite(numericSeeded)) {
+        row.dataset.calculatedSeeded = String(numericSeeded);
+        row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
+      } else if (data.required_cells_total !== undefined) {
+        row.dataset.calculatedSeeded = String(data.required_cells_total);
+        row.dataset.calculatedSeededDisplay =
+          data.required_cells_total_formatted ||
+          formatCells(data.required_cells_total);
+      } else {
+        delete row.dataset.calculatedSeeded;
+        delete row.dataset.calculatedSeededDisplay;
+      }
+
+      const vesselSelect = row.querySelector('.bulk-vessel');
+      if (vesselSelect && data.vessel_id) {
+        vesselSelect.value = data.vessel_id;
+      }
+      const vesselsUsedInput = row.querySelector('.bulk-vessels-used');
+      if (vesselsUsedInput && data.vessels_used !== undefined) {
+        vesselsUsedInput.value = data.vessels_used ?? '';
       }
 
       const notesField = row.querySelector('.bulk-notes');
-      appendNoteSuggestion(notesField, splitData.note_suggestion);
-      appendNoteSuggestion(notesField, seedData.note_suggestion);
+      applyGeneratedNote(notesField, 'Split culture');
 
-      if (splitData.required_cells_total !== undefined) {
-        row.dataset.calculatedSeeded = splitData.required_cells_total;
-        row.dataset.calculatedSeededDisplay =
-          splitData.required_cells_total_formatted ||
-          formatCells(splitData.required_cells_total);
-      }
-
-      row.dataset.lastCalculation = JSON.stringify(combined);
-    } catch (error) {
-      if (resultContainer) {
-        resultContainer.innerHTML = `<p class="error">${error.message}</p>`;
-      }
+      row.dataset.lastCalculation = JSON.stringify(data);
+      return;
     }
-  };
+
+    const seedMode = row.dataset.seedMode || 'cells';
+    const seedPayload = {
+      culture_id: cultureId,
+      mode: MODE_DILUTION,
+      cell_concentration: cellConcentration,
+      dilution_input_mode: seedMode,
+    };
+
+    if (seedMode === 'cells') {
+      const cellsValue = row.querySelector('.bulk-seed-cells')?.value || '';
+      const volumePer = row.querySelector('.bulk-seed-volume-per')?.value || '';
+      const totalValue =
+        row.querySelector('.bulk-seed-total-volume[data-seed-mode="cells"]')?.value || '';
+      if (!cellsValue.trim() || !volumePer.trim() || !totalValue.trim()) {
+        if (resultContainer) {
+          resultContainer.innerHTML =
+            '<p class="error">Provide cells, per-portion volume, and total volume for the seed portion.</p>';
+        }
+        return;
+      }
+      seedPayload.cells_to_seed = cellsValue;
+      seedPayload.volume_per_seed_ml = volumePer;
+      seedPayload.total_volume_ml = totalValue;
+    } else {
+      const finalConc =
+        row.querySelector('.bulk-seed-final-concentration')?.value || '';
+      const totalValue =
+        row.querySelector('.bulk-seed-total-volume[data-seed-mode="concentration"]')?.value || '';
+      if (!finalConc.trim() || !totalValue.trim()) {
+        if (resultContainer) {
+          resultContainer.innerHTML =
+            '<p class="error">Provide the final concentration and total volume for the seed portion.</p>';
+        }
+        return;
+      }
+      seedPayload.final_concentration = finalConc;
+      seedPayload.total_volume_ml = totalValue;
+    }
+
+    const splitPayload = buildSplitPayload();
+    if (!splitPayload) {
+      return;
+    }
+
+    const [seedResponse, splitResponse] = await Promise.all([
+      fetch('/api/calc-seeding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(seedPayload),
+      }),
+      fetch('/api/calc-seeding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(splitPayload),
+      }),
+    ]);
+
+    let seedData;
+    let splitData;
+    try {
+      seedData = await parseJsonResponse(seedResponse);
+      splitData = await parseJsonResponse(splitResponse);
+    } catch (parseError) {
+      console.error('Failed to parse bulk seed & split response', parseError);
+      if (resultContainer) {
+        resultContainer.innerHTML =
+          '<p class="error">Server returned an unexpected response. Please try again.</p>';
+      }
+      return;
+    }
+
+    if (!seedResponse.ok) {
+      if (resultContainer) {
+        resultContainer.innerHTML = `<p class="error">${
+          seedData.error || 'Seed calculation failed.'
+        }</p>`;
+      }
+      return;
+    }
+    if (!splitResponse.ok) {
+      if (resultContainer) {
+        resultContainer.innerHTML = `<p class="error">${
+          splitData.error || 'Split calculation failed.'
+        }</p>`;
+      }
+      return;
+    }
+
+    const seedPurpose = row.querySelector('.bulk-seed-purpose')?.value?.trim() || '';
+    const combined = {
+      mode: MODE_SEED_SPLIT,
+      seed: seedData,
+      split: splitData,
+      seedPurpose,
+    };
+
+    if (resultContainer) {
+      resultContainer.innerHTML = buildSeedingSummary(combined);
+    }
+
+    const seededInput = row.querySelector('.bulk-seeded');
+    const seededResult = computeSeededCells({
+      remainderMode,
+      manualValue,
+      measuredTotal,
+      splitData,
+      seedData,
+    });
+    const hasError = Boolean(seededResult.error && remainderMode !== 'calculate');
+    if (hasError) {
+      window.alert(`${cultureName}: ${seededResult.error}`);
+    }
+    let seededValue = seededResult.value;
+    if (
+      (seededValue === null || seededValue === undefined || Number.isNaN(seededValue)) &&
+      !hasError
+    ) {
+      seededValue = splitData.required_cells_total ?? '';
+    }
+    if (seededInput) {
+      seededInput.value = seededValue ?? '';
+    }
+
+    const numericSeeded = Number.isFinite(seededResult.value)
+      ? seededResult.value
+      : parseNumericInput(seededValue);
+    if (Number.isFinite(numericSeeded)) {
+      row.dataset.calculatedSeeded = String(numericSeeded);
+      row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
+    } else if (splitData.required_cells_total !== undefined) {
+      row.dataset.calculatedSeeded = String(splitData.required_cells_total);
+      row.dataset.calculatedSeededDisplay =
+        splitData.required_cells_total_formatted ||
+        formatCells(splitData.required_cells_total);
+    } else {
+      delete row.dataset.calculatedSeeded;
+      delete row.dataset.calculatedSeededDisplay;
+    }
+
+    const notesField = row.querySelector('.bulk-notes');
+    const noteText = seedPurpose ? `Seed & split (${seedPurpose})` : 'Seed & split';
+    applyGeneratedNote(notesField, noteText);
+
+    row.dataset.lastCalculation = JSON.stringify(combined);
+  } catch (error) {
+    if (resultContainer) {
+      resultContainer.innerHTML = `<p class="error">${error.message}</p>`;
+    }
+  }
+};
+
+  try {
+    if (operation !== MODE_SEED_SPLIT) {
+      const splitPayload = buildSplitPayload();
+      if (!splitPayload) {
+        return;
+      }
+      const response = await fetch('/api/calc-seeding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(splitPayload),
+      });
+      let data;
+      try {
+        data = await parseJsonResponse(response);
+      } catch (parseError) {
+        console.error('Failed to parse bulk seeding response', parseError);
+        if (resultContainer) {
+          resultContainer.innerHTML =
+            '<p class="error">Server returned an unexpected response. Please try again.</p>';
+        }
+        return;
+      }
+      if (!response.ok) {
+        if (resultContainer) {
+          resultContainer.innerHTML = `<p class="error">${
+            data.error || 'Calculation failed.'
+          }</p>`;
+        }
+        return;
+      }
+
+      if (resultContainer) {
+        resultContainer.innerHTML = buildSeedingSummary(data);
+      }
+
+      const seededInput = row.querySelector('.bulk-seeded');
+      const seededResult = computeSeededCells({
+        remainderMode,
+        manualValue,
+        measuredTotal,
+        splitData: data,
+      });
+      if (seededResult.error && remainderMode !== 'calculate') {
+        window.alert(`${cultureName}: ${seededResult.error}`);
+      }
+      let seededValue = seededResult.value;
+      if (
+        seededValue === null ||
+        seededValue === undefined ||
+        Number.isNaN(seededValue)
+      ) {
+        seededValue = data.required_cells_total ?? '';
+      }
+      if (seededInput) {
+        seededInput.value = seededValue ?? '';
+      }
+
+      const numericSeeded = Number.isFinite(seededResult.value)
+        ? seededResult.value
+        : parseNumericInput(seededValue);
+      if (Number.isFinite(numericSeeded)) {
+        row.dataset.calculatedSeeded = String(numericSeeded);
+        row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
+      } else if (data.required_cells_total !== undefined) {
+        row.dataset.calculatedSeeded = String(data.required_cells_total);
+        row.dataset.calculatedSeededDisplay =
+          data.required_cells_total_formatted ||
+          formatCells(data.required_cells_total);
+      } else {
+        delete row.dataset.calculatedSeeded;
+        delete row.dataset.calculatedSeededDisplay;
+      }
+
+      const vesselSelect = row.querySelector('.bulk-vessel');
+      if (vesselSelect && data.vessel_id) {
+        vesselSelect.value = data.vessel_id;
+      }
+      const vesselsUsedInput = row.querySelector('.bulk-vessels-used');
+      if (vesselsUsedInput && data.vessels_used !== undefined) {
+        vesselsUsedInput.value = data.vessels_used ?? '';
+      }
+
+      const notesField = row.querySelector('.bulk-notes');
+      applyGeneratedNote(notesField, 'Split culture');
+
+      row.dataset.lastCalculation = JSON.stringify(data);
+      return;
+    }
+
+    const seedMode = row.dataset.seedMode || 'cells';
+    const seedPayload = {
+      culture_id: cultureId,
+      mode: MODE_DILUTION,
+      cell_concentration: cellConcentration,
+      dilution_input_mode: seedMode,
+    };
+
+    if (seedMode === 'cells') {
+      const cellsValue = row.querySelector('.bulk-seed-cells')?.value || '';
+      const volumePer = row.querySelector('.bulk-seed-volume-per')?.value || '';
+      const totalValue =
+        row.querySelector('.bulk-seed-total-volume[data-seed-mode="cells"]')?.value || '';
+      if (!cellsValue.trim() || !volumePer.trim() || !totalValue.trim()) {
+        if (resultContainer) {
+          resultContainer.innerHTML =
+            '<p class="error">Provide cells, per-portion volume, and total volume for the seed portion.</p>';
+        }
+        return;
+      }
+      seedPayload.cells_to_seed = cellsValue;
+      seedPayload.volume_per_seed_ml = volumePer;
+      seedPayload.total_volume_ml = totalValue;
+    } else {
+      const finalConc =
+        row.querySelector('.bulk-seed-final-concentration')?.value || '';
+      const totalValue =
+        row.querySelector('.bulk-seed-total-volume[data-seed-mode="concentration"]')?.value || '';
+      if (!finalConc.trim() || !totalValue.trim()) {
+        if (resultContainer) {
+          resultContainer.innerHTML =
+            '<p class="error">Provide the final concentration and total volume for the seed portion.</p>';
+        }
+        return;
+      }
+      seedPayload.final_concentration = finalConc;
+      seedPayload.total_volume_ml = totalValue;
+    }
+
+    const splitPayload = buildSplitPayload();
+    if (!splitPayload) {
+      return;
+    }
+
+    const [seedResponse, splitResponse] = await Promise.all([
+      fetch('/api/calc-seeding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(seedPayload),
+      }),
+      fetch('/api/calc-seeding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(splitPayload),
+      }),
+    ]);
+
+    let seedData;
+    let splitData;
+    try {
+      seedData = await parseJsonResponse(seedResponse);
+      splitData = await parseJsonResponse(splitResponse);
+    } catch (parseError) {
+      console.error('Failed to parse bulk seed & split response', parseError);
+      if (resultContainer) {
+        resultContainer.innerHTML =
+          '<p class="error">Server returned an unexpected response. Please try again.</p>';
+      }
+      return;
+    }
+
+    if (!seedResponse.ok) {
+      if (resultContainer) {
+        resultContainer.innerHTML = `<p class="error">${
+          seedData.error || 'Seed calculation failed.'
+        }</p>`;
+      }
+      return;
+    }
+    if (!splitResponse.ok) {
+      if (resultContainer) {
+        resultContainer.innerHTML = `<p class="error">${
+          splitData.error || 'Split calculation failed.'
+        }</p>`;
+      }
+      return;
+    }
+
+    const seedPurpose = row.querySelector('.bulk-seed-purpose')?.value?.trim() || '';
+    const combined = {
+      mode: MODE_SEED_SPLIT,
+      seed: seedData,
+      split: splitData,
+      seedPurpose,
+    };
+
+    if (resultContainer) {
+      resultContainer.innerHTML = buildSeedingSummary(combined);
+    }
+
+    const seededInput = row.querySelector('.bulk-seeded');
+    const seededResult = computeSeededCells({
+      remainderMode,
+      manualValue,
+      measuredTotal,
+      splitData,
+      seedData,
+    });
+    if (seededResult.error && remainderMode !== 'calculate') {
+      window.alert(`${cultureName}: ${seededResult.error}`);
+    }
+    let seededValue = seededResult.value;
+    if (
+      seededValue === null ||
+      seededValue === undefined ||
+      Number.isNaN(seededValue)
+    ) {
+      seededValue = splitData.required_cells_total ?? '';
+    }
+    if (seededInput) {
+      seededInput.value = seededValue ?? '';
+    }
+
+    const numericSeeded = Number.isFinite(seededResult.value)
+      ? seededResult.value
+      : parseNumericInput(seededValue);
+    if (Number.isFinite(numericSeeded)) {
+      row.dataset.calculatedSeeded = String(numericSeeded);
+      row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
+    } else if (splitData.required_cells_total !== undefined) {
+      row.dataset.calculatedSeeded = String(splitData.required_cells_total);
+      row.dataset.calculatedSeededDisplay =
+        splitData.required_cells_total_formatted ||
+        formatCells(splitData.required_cells_total);
+    } else {
+      delete row.dataset.calculatedSeeded;
+      delete row.dataset.calculatedSeededDisplay;
+    }
+
+    const notesField = row.querySelector('.bulk-notes');
+    const noteText = seedPurpose ? `Seed & split (${seedPurpose})` : 'Seed & split';
+    applyGeneratedNote(notesField, noteText);
+
+    row.dataset.lastCalculation = JSON.stringify(combined);
+  } catch (error) {
+    if (resultContainer) {
+      resultContainer.innerHTML = `<p class="error">${error.message}</p>`;
+    }
+  }
+};
 
   const gatherPlannerEntries = (ids) => {
     return ids
@@ -2301,7 +2797,7 @@ function initBulkProcessing() {
           entry.measured_yield_millions = total / 1_000_000;
         }
         if (operation === MODE_SEED_SPLIT) {
-          entry.seed_mode = row.dataset.seedMode || 'concentration';
+          entry.seed_mode = row.dataset.seedMode || 'cells';
           entry.seed_purpose = readValue('.bulk-seed-purpose');
           if (entry.seed_mode === 'cells') {
             entry.seed_cells = readValue('.bulk-seed-cells');
@@ -2342,6 +2838,20 @@ function initBulkProcessing() {
         }
         if (Object.prototype.hasOwnProperty.call(record, 'pre_split_confluence_percent')) {
           culture.pre_split_confluence_percent = record.pre_split_confluence_percent;
+        }
+        if (
+          culture.measured_cell_concentration != null &&
+          culture.measured_slurry_volume_ml != null
+        ) {
+          const total =
+            culture.measured_cell_concentration * culture.measured_slurry_volume_ml;
+          if (Number.isFinite(total)) {
+            culture.measured_cells_total = total;
+            const plannerRow = plannerRowsById.get(id);
+            if (plannerRow) {
+              plannerRow.dataset.measuredTotal = String(total);
+            }
+          }
         }
       }
     });
@@ -2401,6 +2911,20 @@ function initBulkProcessing() {
           culture.default_slurry_volume_ml = record.measured_slurry_volume_ml;
         }
         culture.pre_split_confluence_percent = null;
+        if (
+          culture.measured_cell_concentration != null &&
+          culture.measured_slurry_volume_ml != null
+        ) {
+          const total =
+            culture.measured_cell_concentration * culture.measured_slurry_volume_ml;
+          if (Number.isFinite(total)) {
+            culture.measured_cells_total = total;
+            const plannerRow = plannerRowsById.get(cultureId);
+            if (plannerRow) {
+              plannerRow.dataset.measuredTotal = String(total);
+            }
+          }
+        }
       }
     });
   };

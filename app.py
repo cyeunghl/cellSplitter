@@ -495,6 +495,15 @@ def index():
         if latest and latest.measured_yield_cells:
             measured_yield_millions = latest.measured_yield_cells / 1_000_000
 
+        measured_cells_total = None
+        if (
+            culture.measured_cell_concentration is not None
+            and culture.measured_slurry_volume_ml is not None
+        ):
+            measured_cells_total = (
+                culture.measured_cell_concentration * culture.measured_slurry_volume_ml
+            )
+
         default_slurry_volume_ml = culture.measured_slurry_volume_ml
         if default_slurry_volume_ml is None:
             default_slurry_volume_ml = suggest_slurry_volume(latest_vessel_name)
@@ -521,6 +530,7 @@ def index():
             "measured_slurry_volume_ml": culture.measured_slurry_volume_ml,
             "measured_viability_percent": culture.measured_viability_percent,
             "measured_yield_millions": measured_yield_millions,
+            "measured_cells_total": measured_cells_total,
             "latest_vessel_name": latest_vessel_name,
             "default_slurry_volume_ml": default_slurry_volume_ml,
             "pre_split_confluence_percent": culture.pre_split_confluence_percent,

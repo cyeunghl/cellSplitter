@@ -303,6 +303,7 @@
           data-cell-line-name="{{ culture.cell_line.name }}"
           data-next-passage="{{ culture.next_passage_number }}"
           data-today="{{ today.isoformat() }}"
+          data-measured-total="{{ '%.6g' % culture.measured_cells_total if culture.measured_cells_total is not none else '' }}"
         >
           <div class="mode-toggle" role="radiogroup" aria-label="Seeding workflow">
             <label>
@@ -321,15 +322,15 @@
             </header>
             <div class="mode-toggle compact" role="radiogroup" aria-label="Dilution input mode">
               <label>
-                <input type="radio" name="seed_dilution_mode" value="concentration" checked />
+                <input type="radio" name="seed_dilution_mode" value="concentration" />
                 <span>By final concentration</span>
               </label>
               <label>
-                <input type="radio" name="seed_dilution_mode" value="cells" />
+                <input type="radio" name="seed_dilution_mode" value="cells" checked />
                 <span>By cells and volume</span>
               </label>
             </div>
-            <div data-seed-dilution-section="concentration">
+            <div data-seed-dilution-section="concentration" hidden>
               <div class="field-grid">
                 <label>
                   <span>Final concentration (cells/mL)</span>
@@ -355,7 +356,7 @@
                 </label>
               </div>
             </div>
-            <div data-seed-dilution-section="cells" hidden>
+            <div data-seed-dilution-section="cells">
               <div class="field-grid">
                 <label>
                   <span>Number of cells to seed</span>
@@ -463,6 +464,39 @@
                 placeholder="Default: {{ culture.cell_line.display_doubling_time() }}"
               />
             </label>
+          </section>
+          <section class="planner-subsection" data-remainder-options>
+            <header>
+              <h3>Remainder outcome</h3>
+              <p class="form-hint">Choose how the remainder is seeded.</p>
+            </header>
+            <div class="mode-toggle compact" role="radiogroup" aria-label="Remainder outcome">
+              <label>
+                <input type="radio" name="remainder_mode" value="calculate" checked data-required-operation="split seed_split" />
+                <span>Calculate plan</span>
+              </label>
+              <label>
+                <input type="radio" name="remainder_mode" value="all" data-required-operation="split seed_split" />
+                <span>Seed everything</span>
+              </label>
+              <label>
+                <input type="radio" name="remainder_mode" value="manual" data-required-operation="split seed_split" />
+                <span>Free form</span>
+              </label>
+            </div>
+            <div data-remainder-section="manual" hidden>
+              <label>
+                <span>Cells to seed (total)</span>
+                <input
+                  type="text"
+                  name="remainder_manual_seeded"
+                  placeholder="e.g. 2e6"
+                  data-required-operation="split seed_split"
+                  data-required-remainder="manual"
+                  disabled
+                />
+              </label>
+            </div>
           </section>
           <label>
             <span>Cell concentration (cells/mL)</span>
