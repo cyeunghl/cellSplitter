@@ -146,19 +146,20 @@ function computeSeededCells({
   }
 
   if (remainderMode === 'all') {
-    if (measuredTotal === null || measuredTotal === undefined || !Number.isFinite(measuredTotal)) {
+    if (!Number.isFinite(measuredTotal)) {
       return {
-        value: fallback(),
-        error: 'Record measured yield before seeding everything.',
+        value: null,
+        error: 'Record measured yield before choosing Seed everything.',
       };
     }
-    const seedPortion = pickNumericValue([
-      seedData?.cells_needed,
-      seedData?.required_cells_total,
-      seedData?.required_cells,
-    ]);
-    const remainder = measuredTotal - (seedPortion || 0);
-    return { value: remainder > 0 ? remainder : 0, error: null };
+    const seedPortion =
+      pickNumericValue([
+        seedData?.cells_needed,
+        seedData?.required_cells_total,
+        seedData?.required_cells,
+      ]) || 0;
+    const seededAmount = measuredTotal - seedPortion;
+    return { value: seededAmount > 0 ? seededAmount : 0, error: null };
   }
 
   return { value: fallback(), error: null };
@@ -823,13 +824,12 @@ function attachSeedingFormHandler() {
         return null;
       }
       const targetDays = Number.parseFloat(formData.get('target_days') || '0');
-      const additionalHours = Number.parseFloat(formData.get('additional_hours') || '0');
-      const totalHours = targetDays * 24 + additionalHours;
-      if (!Number.isFinite(totalHours) || totalHours <= 0) {
+      if (!Number.isFinite(targetDays) || targetDays <= 0) {
         resultContainer.innerHTML =
-          '<p class="error">Specify a time horizon greater than zero.</p>';
+          '<p class="error">Specify days until split greater than zero.</p>';
         return null;
       }
+      const totalHours = targetDays * 24;
       const vesselsUsedRaw = Number.parseInt(formData.get('vessels_used'), 10);
       const vesselsUsed = Number.isFinite(vesselsUsedRaw) && vesselsUsedRaw > 0 ? vesselsUsedRaw : 1;
       return {
