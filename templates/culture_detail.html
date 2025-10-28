@@ -397,7 +397,40 @@
             </label>
             <p class="form-hint">Volumes are entered in mL. Results switch to uL when below 0.01 mL.</p>
           </section>
-          <section class="planner-subsection" data-target-section>
+          <section class="planner-subsection" data-remainder-options>
+            <header>
+              <h3>Remainder outcome</h3>
+              <p class="form-hint">Choose how the remainder is seeded.</p>
+            </header>
+            <div class="mode-toggle compact" role="radiogroup" aria-label="Remainder outcome">
+              <label>
+                <input type="radio" name="remainder_mode" value="calculate" checked data-required-operation="split seed_split" />
+                <span>Calculate plan</span>
+              </label>
+              <label>
+                <input type="radio" name="remainder_mode" value="all" data-required-operation="split seed_split" />
+                <span>Seed everything</span>
+              </label>
+              <label>
+                <input type="radio" name="remainder_mode" value="manual" data-required-operation="split seed_split" />
+                <span>Free form</span>
+              </label>
+            </div>
+          </section>
+          <section class="planner-subsection" data-remainder-section="manual" hidden>
+            <label>
+              <span>Cells to seed (total)</span>
+              <input
+                type="text"
+                name="remainder_manual_seeded"
+                placeholder="e.g. 2e6"
+                data-required-operation="split seed_split"
+                data-required-remainder="manual"
+                disabled
+              />
+            </label>
+          </section>
+          <section class="planner-subsection" data-target-section data-remainder-section="calculate">
             <header>
               <h3 data-target-heading>Split culture</h3>
             </header>
@@ -460,39 +493,6 @@
                 placeholder="Default: {{ culture.cell_line.display_doubling_time() }}"
               />
             </label>
-          </section>
-          <section class="planner-subsection" data-remainder-options>
-            <header>
-              <h3>Remainder outcome</h3>
-              <p class="form-hint">Choose how the remainder is seeded.</p>
-            </header>
-            <div class="mode-toggle compact" role="radiogroup" aria-label="Remainder outcome">
-              <label>
-                <input type="radio" name="remainder_mode" value="calculate" checked data-required-operation="split seed_split" />
-                <span>Calculate plan</span>
-              </label>
-              <label>
-                <input type="radio" name="remainder_mode" value="all" data-required-operation="split seed_split" />
-                <span>Seed everything</span>
-              </label>
-              <label>
-                <input type="radio" name="remainder_mode" value="manual" data-required-operation="split seed_split" />
-                <span>Free form</span>
-              </label>
-            </div>
-            <div data-remainder-section="manual" hidden>
-              <label>
-                <span>Cells to seed (total)</span>
-                <input
-                  type="text"
-                  name="remainder_manual_seeded"
-                  placeholder="e.g. 2e6"
-                  data-required-operation="split seed_split"
-                  data-required-remainder="manual"
-                  disabled
-                />
-              </label>
-            </div>
           </section>
           <label>
             <span>Cell concentration (cells/mL)</span>

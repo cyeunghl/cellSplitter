@@ -146,20 +146,21 @@ function computeSeededCells({
   }
 
   if (remainderMode === 'all') {
-    if (!Number.isFinite(measuredTotal)) {
-      return {
-        value: null,
-        error: 'Record measured yield before choosing Seed everything.',
-      };
+    if (Number.isFinite(measuredTotal)) {
+      const seedPortion =
+        pickNumericValue([
+          seedData?.cells_needed,
+          seedData?.required_cells_total,
+          seedData?.required_cells,
+        ]) || 0;
+      const seededAmount = measuredTotal - seedPortion;
+      return { value: seededAmount > 0 ? seededAmount : 0, error: null };
     }
-    const seedPortion =
-      pickNumericValue([
-        seedData?.cells_needed,
-        seedData?.required_cells_total,
-        seedData?.required_cells,
-      ]) || 0;
-    const seededAmount = measuredTotal - seedPortion;
-    return { value: seededAmount > 0 ? seededAmount : 0, error: null };
+    const fallbackValue = fallback();
+    if (Number.isFinite(fallbackValue)) {
+      return { value: fallbackValue, error: null };
+    }
+    return { value: null, error: null };
   }
 
   return { value: fallback(), error: null };
@@ -1761,7 +1762,33 @@ function initBulkProcessing() {
               <input type="text" class="bulk-seed-purpose" placeholder="e.g. Myco testing" />
             </label>
           </section>
-          <section class="planner-subsection" data-bulk-target-section>
+          <section class="planner-subsection" data-bulk-remainder-section>
+            <header>
+              <h3>Remainder outcome</h3>
+              <p class="form-hint">Choose how the remainder is seeded.</p>
+            </header>
+            <div class="mode-toggle compact" role="radiogroup" aria-label="Remainder outcome">
+              <label>
+                <input type="radio" class="bulk-remainder-mode" name="bulk-remainder-${id}" value="calculate" checked />
+                <span>Calculate plan</span>
+              </label>
+              <label>
+                <input type="radio" class="bulk-remainder-mode" name="bulk-remainder-${id}" value="all" />
+                <span>Seed everything</span>
+              </label>
+              <label>
+                <input type="radio" class="bulk-remainder-mode" name="bulk-remainder-${id}" value="manual" />
+                <span>Free form</span>
+              </label>
+            </div>
+          </section>
+          <section class="planner-subsection" data-bulk-remainder-mode="manual" hidden>
+            <label>
+              <span>Cells to seed (total)</span>
+              <input type="text" class="bulk-remainder-manual" data-required-remainder="manual" />
+            </label>
+          </section>
+          <section class="planner-subsection" data-bulk-target-section data-bulk-remainder-mode="calculate">
             <header>
               <h3 data-bulk-target-heading>Split culture</h3>
             </header>
@@ -1785,32 +1812,6 @@ function initBulkProcessing() {
               <span>Doubling time override (h)</span>
               <input type="text" class="bulk-doubling-override" />
             </label>
-          </section>
-          <section class="planner-subsection" data-bulk-remainder-section>
-            <header>
-              <h3>Remainder outcome</h3>
-              <p class="form-hint">Choose how the remainder is seeded.</p>
-            </header>
-            <div class="mode-toggle compact" role="radiogroup" aria-label="Remainder outcome">
-              <label>
-                <input type="radio" class="bulk-remainder-mode" name="bulk-remainder-${id}" value="calculate" checked />
-                <span>Calculate plan</span>
-              </label>
-              <label>
-                <input type="radio" class="bulk-remainder-mode" name="bulk-remainder-${id}" value="all" />
-                <span>Seed everything</span>
-              </label>
-              <label>
-                <input type="radio" class="bulk-remainder-mode" name="bulk-remainder-${id}" value="manual" />
-                <span>Free form</span>
-              </label>
-            </div>
-            <div data-bulk-remainder-mode="manual" hidden>
-              <label>
-                <span>Cells to seed (total)</span>
-                <input type="text" class="bulk-remainder-manual" data-required-remainder="manual" />
-              </label>
-            </div>
           </section>
           <label>
             <span>Starting concentration (cells/mL)</span>
