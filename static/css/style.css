@@ -20,6 +20,8 @@ body {
 
 [data-mode-section][hidden],
 [data-dilution-section][hidden],
+[data-seed-section][hidden],
+[data-seed-dilution-section][hidden],
 .bulk-mode-section[hidden],
 .bulk-dilution-section[hidden] {
   display: none !important;
@@ -345,6 +347,23 @@ textarea {
   display: inline;
 }
 
+.threshold-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: 0.75rem;
+}
+
+.input-small {
+  width: 4.5rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.input-inline {
+  width: 9rem;
+  padding: 0.35rem 0.5rem;
+}
+
 .mode-toggle {
   display: flex;
   flex-wrap: wrap;
@@ -365,6 +384,15 @@ textarea {
   transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
+.mode-toggle.compact {
+  gap: 0.35rem;
+}
+
+.mode-toggle.compact label {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.85rem;
+}
+
 .mode-toggle label.is-selected {
   background: rgba(52, 88, 235, 0.12);
   border-color: var(--accent);
@@ -376,8 +404,106 @@ textarea {
   accent-color: var(--accent);
 }
 
-[data-mode-section='dilution'] .mode-toggle {
+.planner-subsection[data-seed-section] .mode-toggle {
   margin-bottom: 0.75rem;
+}
+
+.planner-subsection {
+  margin-bottom: 1.5rem;
+}
+
+.planner-subsection header {
+  margin-bottom: 0.75rem;
+}
+
+.planner-subsection h3 {
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.planner-subsection p.form-hint {
+  margin-top: 0.25rem;
+}
+
+.seeding-result {
+  margin-bottom: 1rem;
+}
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 1100;
+}
+
+.dialog {
+  background: #ffffff;
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.25);
+  padding: 1.5rem;
+  max-width: 420px;
+  width: 100%;
+}
+
+.dialog h3 {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  font-size: 1.125rem;
+}
+
+.dialog p.dialog-note {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  color: var(--muted-text);
+  font-size: 0.9rem;
+}
+
+.dialog-options {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.dialog-options .button {
+  width: 100%;
+}
+
+.dialog-other {
+  margin-top: 0.75rem;
+}
+
+.dialog-other .dialog-other-inputs {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dialog-other input[type='text'] {
+  flex: 1 1 auto;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.seeding-result h4 {
+  margin-bottom: 0.35rem;
+  font-size: 0.95rem;
+}
+
+.seeding-result p {
+  margin-bottom: 0.25rem;
+}
+
+.seeding-result p:last-child {
+  margin-bottom: 0;
 }
 
 [data-dilution-section] + [data-dilution-section] {
@@ -598,8 +724,20 @@ label.checkbox input[type='checkbox'] {
   flex-wrap: wrap;
 }
 
+.table td.actions .input-inline {
+  margin-right: 0.25rem;
+}
+
 .table-wrapper {
   overflow-x: auto;
+}
+
+.table tr.stale-row td {
+  background: #fff7e0;
+}
+
+.table tr.passage-warning-row td {
+  background: #fde8e8;
 }
 
 .label-card {

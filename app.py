@@ -57,6 +57,9 @@ HARVEST_VOLUME_HINTS: list[tuple[str, float]] = [
     ("1536", 0.01),
 ]
 
+PASSAGE_WARNING_SETTING = "passage_warning_threshold"
+DEFAULT_PASSAGE_WARNING = 20
+
 
 def suggest_slurry_volume(vessel_name: Optional[str]) -> Optional[float]:
     if not vessel_name:
@@ -110,6 +113,8 @@ class Culture(db.Model):
     measured_cell_concentration = db.Column(db.Float, nullable=True)
     measured_slurry_volume_ml = db.Column(db.Float, nullable=True)
     pre_split_confluence_percent = db.Column(db.Integer, nullable=True)
+    measured_viability_percent = db.Column(db.Integer, nullable=True)
+    end_reason = db.Column(db.Text, nullable=True)
 
     cell_line = db.relationship("CellLine", back_populates="cultures")
     passages = db.relationship(
@@ -161,6 +166,7 @@ class Passage(db.Model):
     seeded_cells = db.Column(db.Float, nullable=True)
     measured_yield_cells = db.Column(db.Float, nullable=True)
     pre_split_confluence_percent = db.Column(db.Integer, nullable=True)
+    measured_viability_percent = db.Column(db.Integer, nullable=True)
 
     culture = db.relationship("Culture", back_populates="passages")
     vessel = db.relationship("Vessel")
@@ -172,6 +178,28 @@ class Vessel(db.Model):
     area_cm2 = db.Column(db.Float, nullable=False)
     cells_at_100_confluency = db.Column(db.Float, nullable=False)
     notes = db.Column(db.Text, nullable=True)
+
+
+class Setting(db.Model):
+    key = db.Column(db.String(64), primary_key=True)
+    value = db.Column(db.String(255), nullable=True)
+
+    @staticmethod
+    def get_value(key: str, default: Optional[str] = None) -> Optional[str]:
+        record = Setting.query.get(key)
+        if record is None:
+            return default
+        return record.value
+
+    @staticmethod
+    def set_value(key: str, value: Optional[str]) -> None:
+        record = Setting.query.get(key)
+        if record is None:
+            record = Setting(key=key, value=value)
+            db.session.add(record)
+        else:
+            record.value = value
+        db.session.commit()
 
 
 def load_json_data(filename: str) -> list[dict]:
@@ -218,6 +246,8 @@ def setup_database() -> None:
     bootstrap_cell_lines()
     bootstrap_vessels()
     ensure_columns()
+    if Setting.get_value(PASSAGE_WARNING_SETTING) is None:
+        Setting.set_value(PASSAGE_WARNING_SETTING, str(DEFAULT_PASSAGE_WARNING))
 
 
 def ensure_columns() -> None:
@@ -255,6 +285,16 @@ def ensure_columns() -> None:
             connection.execute(
                 text("ALTER TABLE passage ADD COLUMN pre_split_confluence_percent INTEGER")
             )
+        if not has_column("culture", "measured_viability_percent"):
+            connection.execute(
+                text("ALTER TABLE culture ADD COLUMN measured_viability_percent INTEGER")
+            )
+        if not has_column("passage", "measured_viability_percent"):
+            connection.execute(
+                text("ALTER TABLE passage ADD COLUMN measured_viability_percent INTEGER")
+            )
+        if not has_column("culture", "end_reason"):
+            connection.execute(text("ALTER TABLE culture ADD COLUMN end_reason TEXT"))
 
 
 def parse_date(value: str | None) -> date:
@@ -360,7 +400,7 @@ def format_volume(volume_ml: Optional[float]) -> Optional[str]:
     if volume_ml == 0:
         return "0.00 mL"
     if volume_ml < 0.01:
-        return f"{volume_ml * 1000:.2f} µL"
+        return f"{volume_ml * 1000:.2f} uL"
     return f"{volume_ml:.2f} mL"
 
 
@@ -385,6 +425,17 @@ app.jinja_env.filters["format_hours"] = format_hours
 app.jinja_env.filters["format_volume"] = format_volume
 
 
+def get_passage_warning_threshold() -> int:
+    raw = Setting.get_value(PASSAGE_WARNING_SETTING)
+    if raw is None:
+        return DEFAULT_PASSAGE_WARNING
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_PASSAGE_WARNING
+    return max(1, value)
+
+
 @app.route("/")
 def index():
     active_cultures = (
@@ -400,6 +451,10 @@ def index():
     cell_lines = CellLine.query.order_by(CellLine.name.asc()).all()
     vessels = Vessel.query.order_by(Vessel.area_cm2.asc()).all()
 
+    today_value = date.today()
+    passage_warning_threshold = get_passage_warning_threshold()
+    stale_cutoff_days = 4
+
     t75_vessel_id = None
     for vessel in vessels:
         if vessel.name.lower().startswith("t75"):
@@ -409,6 +464,13 @@ def index():
     bulk_culture_payload: list[dict] = []
     for culture in active_cultures:
         latest = culture.latest_passage
+        if latest is not None:
+            days_since_last_passage = (today_value - latest.date).days
+        else:
+            days_since_last_passage = (today_value - culture.start_date).days
+        culture.days_since_last_passage = days_since_last_passage
+        culture.is_stale = days_since_last_passage is not None and days_since_last_passage > stale_cutoff_days
+        culture.passage_warning_threshold = passage_warning_threshold
         default_cell_concentration = culture.measured_cell_concentration
         if default_cell_concentration is None and latest and latest.cell_concentration:
             default_cell_concentration = latest.cell_concentration
@@ -432,6 +494,15 @@ def index():
         measured_yield_millions = None
         if latest and latest.measured_yield_cells:
             measured_yield_millions = latest.measured_yield_cells / 1_000_000
+
+        measured_cells_total = None
+        if (
+            culture.measured_cell_concentration is not None
+            and culture.measured_slurry_volume_ml is not None
+        ):
+            measured_cells_total = (
+                culture.measured_cell_concentration * culture.measured_slurry_volume_ml
+            )
 
         default_slurry_volume_ml = culture.measured_slurry_volume_ml
         if default_slurry_volume_ml is None:
@@ -457,10 +528,13 @@ def index():
             ),
             "measured_cell_concentration": culture.measured_cell_concentration,
             "measured_slurry_volume_ml": culture.measured_slurry_volume_ml,
+            "measured_viability_percent": culture.measured_viability_percent,
             "measured_yield_millions": measured_yield_millions,
+            "measured_cells_total": measured_cells_total,
             "latest_vessel_name": latest_vessel_name,
             "default_slurry_volume_ml": default_slurry_volume_ml,
             "pre_split_confluence_percent": culture.pre_split_confluence_percent,
+            "days_since_last_passage": days_since_last_passage,
         }
         bulk_culture_payload.append(culture_payload)
 
@@ -486,8 +560,29 @@ def index():
         bulk_cultures_json=json.dumps(bulk_culture_payload),
         vessel_payload_json=json.dumps(vessel_payload),
         default_vessel_id=t75_vessel_id,
-        today=date.today(),
+        today=today_value,
+        passage_warning_threshold=passage_warning_threshold,
+        stale_cutoff_days=stale_cutoff_days,
     )
+
+
+@app.route("/settings/passage-threshold", methods=["POST"])
+def update_passage_threshold():
+    raw_value = request.form.get("passage_warning_threshold")
+    if raw_value in (None, ""):
+        flash("Enter a passage number for the reminder threshold.", "error")
+        return redirect(url_for("index"))
+    try:
+        numeric = int(raw_value)
+    except (TypeError, ValueError):
+        flash("Enter a whole-number passage threshold (e.g. 20).", "error")
+        return redirect(url_for("index"))
+    if numeric < 1:
+        flash("Threshold must be at least 1.", "error")
+        return redirect(url_for("index"))
+    Setting.set_value(PASSAGE_WARNING_SETTING, str(numeric))
+    flash(f"Passage reminder threshold updated to P{numeric}.", "success")
+    return redirect(url_for("index"))
 
 
 @app.route("/culture", methods=["POST"])
@@ -586,6 +681,10 @@ def view_culture(culture_id: int):
         if formatted is not None:
             default_measured_yield_display = formatted
 
+    default_viability = culture.measured_viability_percent
+    if default_viability is None and last_passage and last_passage.measured_viability_percent is not None:
+        default_viability = last_passage.measured_viability_percent
+
     return render_template(
         "culture_detail.html",
         culture=culture,
@@ -595,6 +694,7 @@ def view_culture(culture_id: int):
         default_vessel_id=default_vessel_id,
         default_measured_yield_display=default_measured_yield_display,
         default_pre_split_confluence=culture.pre_split_confluence_percent,
+        default_viability_percent=default_viability,
         today=date.today(),
     )
 
@@ -643,6 +743,20 @@ def add_passage(culture_id: int):
 
     seeded_cells = parse_numeric(request.form.get("seeded_cells"))
     measured_yield_cells = parse_millions(request.form.get("measured_yield_millions"))
+    viability_raw = request.form.get("measured_viability_percent")
+    measured_viability: Optional[int] = None
+    if viability_raw not in (None, ""):
+        viability_clean = viability_raw.strip()
+        if viability_clean:
+            viability_numeric = parse_numeric(viability_clean)
+            if viability_numeric is None:
+                flash("Enter viability as a percentage between 0 and 100.", "error")
+                return redirect(url_for("view_culture", culture_id=culture.id))
+            viability_int = int(round(viability_numeric))
+            if viability_int < 0 or viability_int > 100:
+                flash("Enter viability as a percentage between 0 and 100.", "error")
+                return redirect(url_for("view_culture", culture_id=culture.id))
+            measured_viability = viability_int
     pre_split_confluence = request.form.get("pre_split_confluence_percent")
     pre_split_value: Optional[int] = None
     if pre_split_confluence not in (None, ""):
@@ -659,11 +773,24 @@ def add_passage(culture_id: int):
             pre_split_value = rounded
 
     pre_split_for_new = None
+    measured_yield_for_new = None
+    viability_for_new = None
     if pre_split_value is not None:
         if last_passage is not None:
             last_passage.pre_split_confluence_percent = pre_split_value
         else:
             pre_split_for_new = pre_split_value
+    if measured_yield_cells is not None:
+        if last_passage is not None:
+            last_passage.measured_yield_cells = measured_yield_cells
+        else:
+            measured_yield_for_new = measured_yield_cells
+    if measured_viability is not None:
+        culture.measured_viability_percent = measured_viability
+        if last_passage is not None:
+            last_passage.measured_viability_percent = measured_viability
+        else:
+            viability_for_new = measured_viability
 
     passage = Passage(
         culture=culture,
@@ -676,8 +803,9 @@ def add_passage(culture_id: int):
         vessel=vessel,
         vessels_used=vessels_used,
         seeded_cells=seeded_cells,
-        measured_yield_cells=measured_yield_cells,
+        measured_yield_cells=measured_yield_for_new,
         pre_split_confluence_percent=pre_split_for_new,
+        measured_viability_percent=viability_for_new,
     )
     db.session.add(passage)
 
@@ -698,28 +826,71 @@ def record_measurement(culture_id: int):
     if request.form.get("clear"):
         culture.measured_cell_concentration = None
         culture.measured_slurry_volume_ml = None
+        culture.measured_viability_percent = None
+        latest = culture.latest_passage
+        if latest is not None:
+            latest.measured_yield_cells = None
+            latest.measured_viability_percent = None
         db.session.commit()
         flash(f"Cleared measured yield details for '{culture.name}'.", "info")
         return redirect(url_for("view_culture", culture_id=culture.id))
 
     concentration = parse_numeric(request.form.get("measured_cell_concentration"))
     volume_ml = parse_numeric(request.form.get("measured_slurry_volume_ml"))
+    viability_raw = request.form.get("measured_viability_percent")
+    viability_value: Optional[int] = None
+    if viability_raw not in (None, ""):
+        viability_clean = viability_raw.strip()
+        if viability_clean:
+            viability_numeric = parse_numeric(viability_clean)
+            if viability_numeric is None:
+                flash("Enter viability as a percentage between 0 and 100.", "error")
+                return redirect(url_for("view_culture", culture_id=culture.id))
+            viability_int = int(round(viability_numeric))
+            if viability_int < 0 or viability_int > 100:
+                flash("Enter viability as a percentage between 0 and 100.", "error")
+                return redirect(url_for("view_culture", culture_id=culture.id))
+            viability_value = viability_int
 
     culture.measured_cell_concentration = concentration
     culture.measured_slurry_volume_ml = volume_ml
+    culture.measured_viability_percent = viability_value
+
+    latest_passage = culture.latest_passage
+    total_cells: Optional[float] = None
+    if concentration and volume_ml:
+        total_cells = concentration * volume_ml
+        if latest_passage is not None:
+            latest_passage.measured_yield_cells = total_cells
+    if viability_value is not None and latest_passage is not None:
+        latest_passage.measured_viability_percent = viability_value
 
     db.session.commit()
 
-    if concentration and volume_ml:
-        total_cells = concentration * volume_ml
+    if total_cells is not None:
         flash(
             f"Saved measured yield for '{culture.name}': "
             f"{format_cells(total_cells)} cells in {format_volume(volume_ml)}.",
             "success",
         )
+        if viability_value is not None:
+            flash(
+                f"Viability recorded at {viability_value}% for '{culture.name}'.",
+                "info",
+            )
     elif concentration or volume_ml:
         flash(
             f"Saved measured yield details for '{culture.name}'. Add both values to compute total cells.",
+            "info",
+        )
+        if viability_value is not None:
+            flash(
+                f"Viability recorded at {viability_value}% for '{culture.name}'.",
+                "info",
+            )
+    elif viability_value is not None:
+        flash(
+            f"Saved viability of {viability_value}% for '{culture.name}'.",
             "info",
         )
     else:
@@ -1057,6 +1228,41 @@ def record_bulk_harvest():
 
         measured_concentration = parse_numeric(entry.get("measured_cell_concentration"))
         measured_volume = parse_numeric(entry.get("measured_slurry_volume_ml"))
+        viability_raw = entry.get("measured_viability_percent")
+        viability_value: Optional[int] = None
+        if viability_raw not in (None, ""):
+            if isinstance(viability_raw, str):
+                viability_candidate = viability_raw.strip()
+            else:
+                viability_candidate = viability_raw
+            if viability_candidate not in (None, ""):
+                viability_numeric = parse_numeric(viability_candidate)
+                if viability_numeric is None:
+                    db.session.rollback()
+                    return (
+                        jsonify(
+                            {
+                                "error": (
+                                    f"Enter viability between 0 and 100% for culture '{culture.name}'."
+                                )
+                            }
+                        ),
+                        400,
+                    )
+                viability_int = int(round(viability_numeric))
+                if viability_int < 0 or viability_int > 100:
+                    db.session.rollback()
+                    return (
+                        jsonify(
+                            {
+                                "error": (
+                                    f"Enter viability between 0 and 100% for culture '{culture.name}'."
+                                )
+                            }
+                        ),
+                        400,
+                    )
+                viability_value = viability_int
         pre_split_value: Optional[int] = None
 
         pre_split_raw = entry.get("pre_split_confluence_percent")
@@ -1117,13 +1323,20 @@ def record_bulk_harvest():
 
         culture.measured_cell_concentration = measured_concentration
         culture.measured_slurry_volume_ml = measured_volume
+        culture.measured_viability_percent = viability_value
         if pre_split_value is not None:
             culture.pre_split_confluence_percent = pre_split_value
             latest_passage = culture.latest_passage
             if latest_passage is not None:
                 latest_passage.pre_split_confluence_percent = pre_split_value
+        else:
+            latest_passage = culture.latest_passage
 
         measured_yield_cells = measured_concentration * measured_volume
+        if latest_passage is not None:
+            latest_passage.measured_yield_cells = measured_yield_cells
+            if viability_value is not None:
+                latest_passage.measured_viability_percent = viability_value
 
         results.append(
             {
@@ -1134,6 +1347,7 @@ def record_bulk_harvest():
                 "measured_yield_millions": measured_yield_cells / 1_000_000,
                 "measured_yield_display": format_cells(measured_yield_cells),
                 "pre_split_confluence_percent": pre_split_value,
+                "measured_viability_percent": viability_value,
             }
         )
 
@@ -1182,6 +1396,21 @@ def create_bulk_passages():
         doubling_time = parse_numeric(entry.get("doubling_time_hours"))
         seeded_cells = parse_numeric(entry.get("seeded_cells"))
         measured_yield_cells = parse_millions(entry.get("measured_yield_millions"))
+        viability_raw = entry.get("measured_viability_percent")
+        measured_viability: Optional[int] = None
+        if viability_raw not in (None, ""):
+            if isinstance(viability_raw, str):
+                viability_raw = viability_raw.strip()
+            if viability_raw not in (None, ""):
+                viability_numeric = parse_numeric(viability_raw)
+                if viability_numeric is None:
+                    db.session.rollback()
+                    return jsonify({"error": "Enter viability as a percentage between 0 and 100."}), 400
+                viability_int = int(round(viability_numeric))
+                if viability_int < 0 or viability_int > 100:
+                    db.session.rollback()
+                    return jsonify({"error": "Enter viability as a percentage between 0 and 100."}), 400
+                measured_viability = viability_int
         pre_split_confluence_value = None
         pre_split_raw = entry.get("pre_split_confluence_percent")
         if isinstance(pre_split_raw, str):
@@ -1235,6 +1464,8 @@ def create_bulk_passages():
             culture.measured_cell_concentration = measured_cell_concentration
         if measured_slurry_volume is not None:
             culture.measured_slurry_volume_ml = measured_slurry_volume
+        if measured_viability is not None:
+            culture.measured_viability_percent = measured_viability
 
         if measured_yield_cells is None:
             if (
@@ -1252,11 +1483,23 @@ def create_bulk_passages():
                 )
 
         pre_split_for_new = None
+        measured_yield_for_new = None
+        viability_for_new = None
         if pre_split_confluence_value is not None:
             if last_passage is not None:
                 last_passage.pre_split_confluence_percent = pre_split_confluence_value
             else:
                 pre_split_for_new = pre_split_confluence_value
+        if measured_yield_cells is not None:
+            if last_passage is not None:
+                last_passage.measured_yield_cells = measured_yield_cells
+            else:
+                measured_yield_for_new = measured_yield_cells
+        if measured_viability is not None:
+            if last_passage is not None:
+                last_passage.measured_viability_percent = measured_viability
+            else:
+                viability_for_new = measured_viability
 
         passage = Passage(
             culture=culture,
@@ -1269,8 +1512,9 @@ def create_bulk_passages():
             vessel=vessel,
             vessels_used=vessels_used,
             seeded_cells=seeded_cells,
-            measured_yield_cells=measured_yield_cells,
+            measured_yield_cells=measured_yield_for_new,
             pre_split_confluence_percent=pre_split_for_new,
+            measured_viability_percent=viability_for_new,
         )
         db.session.add(passage)
 
@@ -1293,6 +1537,7 @@ def create_bulk_passages():
                 "measured_yield_display": format_cells(measured_yield_cells)
                 if measured_yield_cells is not None
                 else None,
+                "measured_viability_percent": measured_viability,
                 "pre_split_confluence_percent": pre_split_confluence_value,
             }
         )
@@ -1336,6 +1581,9 @@ def export_cultures():
             "Vessel usage",
             "Pre-split confluence (%)",
             "Seeded cells",
+            "Measured yield (cells)",
+            "Measured viability (%)",
+            "End reason",
         ]
     )
     for culture in cultures:
@@ -1357,6 +1605,16 @@ def export_cultures():
         if latest and latest.pre_split_confluence_percent is not None:
             confluence_display = f"{latest.pre_split_confluence_percent}"
 
+        measured_yield_display = ""
+        if latest and latest.measured_yield_cells is not None:
+            formatted_yield = format_significant(latest.measured_yield_cells, 2)
+            if formatted_yield is not None:
+                measured_yield_display = formatted_yield
+
+        viability_display = ""
+        if latest and latest.measured_viability_percent is not None:
+            viability_display = f"{latest.measured_viability_percent}"
+
         writer.writerow(
             [
                 culture.name,
@@ -1372,6 +1630,9 @@ def export_cultures():
                 vessel_info,
                 confluence_display,
                 seeded_cells_value,
+                measured_yield_display,
+                viability_display,
+                culture.end_reason or "",
             ]
         )
 
@@ -1401,7 +1662,9 @@ def end_culture(culture_id: int):
         return redirect(url_for("view_culture", culture_id=culture.id))
 
     ended_on = parse_date(request.form.get("ended_on"))
+    reason_raw = request.form.get("end_reason") or ""
     culture.ended_on = ended_on
+    culture.end_reason = reason_raw.strip() or None
     db.session.commit()
 
     flash(f"Culture '{culture.name}' marked as ended.", "success")
@@ -1416,9 +1679,39 @@ def reactivate_culture(culture_id: int):
         return redirect(url_for("view_culture", culture_id=culture.id))
 
     culture.ended_on = None
+    culture.end_reason = None
     db.session.commit()
 
     flash(f"Culture '{culture.name}' reactivated.", "success")
+    return redirect(url_for("view_culture", culture_id=culture.id))
+
+
+@app.route("/culture/<int:culture_id>/refresh_media", methods=["POST"])
+def refresh_media(culture_id: int):
+    culture = Culture.query.get_or_404(culture_id)
+    if not culture.is_active:
+        flash("Reactivate the culture before recording a media refresh.", "error")
+        return redirect(url_for("view_culture", culture_id=culture.id))
+
+    latest = culture.latest_passage
+    today_stamp = date.today().strftime("%Y-%m-%d")
+    entry = f"media refreshed on {today_stamp}"
+
+    if latest is not None:
+        existing_notes = latest.notes.strip() if latest.notes else ""
+        if existing_notes:
+            latest.notes = f"{existing_notes}\n{entry}"
+        else:
+            latest.notes = entry
+    else:
+        existing_notes = culture.notes.strip() if culture.notes else ""
+        if existing_notes:
+            culture.notes = f"{existing_notes}\n{entry}"
+        else:
+            culture.notes = entry
+
+    db.session.commit()
+    flash(f"Logged media refresh for '{culture.name}'.", "success")
     return redirect(url_for("view_culture", culture_id=culture.id))
 
 
