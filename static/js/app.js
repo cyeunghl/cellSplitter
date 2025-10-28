@@ -166,6 +166,71 @@ function computeSeededCells({
   return { value: fallback(), error: null };
 }
 
+function resolveSeedingConcentration({
+  measuredYieldOverride,
+  measuredTotal,
+  measuredConcentration,
+  measuredVolume,
+  defaultConcentration,
+}) {
+  let overrideTotal = null;
+  if (
+    measuredYieldOverride !== null &&
+    measuredYieldOverride !== undefined &&
+    measuredYieldOverride !== ''
+  ) {
+    if (!Number.isFinite(measuredYieldOverride) || measuredYieldOverride <= 0) {
+      return {
+        error: 'Enter a valid measured yield (e.g. 1.5e7 cells).',
+      };
+    }
+    overrideTotal = measuredYieldOverride;
+  }
+
+  const parsedMeasuredTotal = Number.isFinite(measuredTotal) && measuredTotal > 0 ? measuredTotal : null;
+  const parsedMeasuredConcentration =
+    Number.isFinite(measuredConcentration) && measuredConcentration > 0
+      ? measuredConcentration
+      : null;
+  const parsedMeasuredVolume =
+    Number.isFinite(measuredVolume) && measuredVolume > 0 ? measuredVolume : null;
+  let parsedDefaultConcentration = null;
+  if (Number.isFinite(defaultConcentration) && defaultConcentration > 0) {
+    parsedDefaultConcentration = defaultConcentration;
+  }
+
+  if (overrideTotal !== null && !parsedMeasuredVolume) {
+    return {
+      error: 'Record the harvest volume before using a measured yield override.',
+    };
+  }
+
+  let concentration = null;
+  if (overrideTotal !== null && parsedMeasuredVolume) {
+    concentration = overrideTotal / parsedMeasuredVolume;
+  } else if (parsedMeasuredConcentration) {
+    concentration = parsedMeasuredConcentration;
+  } else if (parsedMeasuredVolume && parsedMeasuredTotal) {
+    concentration = parsedMeasuredTotal / parsedMeasuredVolume;
+  } else if (parsedDefaultConcentration) {
+    concentration = parsedDefaultConcentration;
+  }
+
+  if (!Number.isFinite(concentration) || concentration <= 0) {
+    return {
+      error: 'Provide harvest data or a default concentration before calculating.',
+    };
+  }
+
+  const totalForRemainder = overrideTotal ?? parsedMeasuredTotal ?? null;
+
+  return {
+    concentration,
+    measuredTotal: totalForRemainder,
+    error: null,
+  };
+}
+
 function applyGeneratedNote(field, text) {
   if (!field) {
     return;
@@ -793,16 +858,53 @@ function attachSeedingFormHandler() {
 
     const formData = new FormData(form);
     const operation = form.querySelector('input[name="operation"]:checked')?.value || 'split';
-    const cellConcentrationInput = (formData.get('cell_concentration') || '').trim();
-    if (!cellConcentrationInput) {
-      resultContainer.innerHTML =
-        '<p class="error">Enter the starting cell concentration (e.g. 1e6 cells/mL) before calculating.</p>';
+    const measuredYieldRaw = (formData.get('measured_yield_override') || '').trim();
+    let measuredYieldOverride = null;
+    if (measuredYieldRaw) {
+      measuredYieldOverride = parseNumericInput(measuredYieldRaw);
+      if (measuredYieldOverride === null || !Number.isFinite(measuredYieldOverride) || measuredYieldOverride <= 0) {
+        resultContainer.innerHTML =
+          '<p class="error">Enter a valid measured yield (e.g. 1.5e7 cells) before calculating.</p>';
+        return;
+      }
+    }
+
+    const measuredTotalDataset = form.dataset.measuredTotal
+      ? parseNumericInput(form.dataset.measuredTotal)
+      : null;
+    const measuredConcentrationDataset = form.dataset.measuredConcentration
+      ? parseNumericInput(form.dataset.measuredConcentration)
+      : null;
+    const measuredVolumeDataset = form.dataset.measuredVolume
+      ? parseNumericInput(form.dataset.measuredVolume)
+      : null;
+    let defaultConcentrationDataset = form.dataset.defaultConcentration
+      ? parseNumericInput(form.dataset.defaultConcentration)
+      : null;
+    if (!Number.isFinite(defaultConcentrationDataset) || defaultConcentrationDataset <= 0) {
+      defaultConcentrationDataset = 1_000_000;
+    }
+
+    const resolved = resolveSeedingConcentration({
+      measuredYieldOverride,
+      measuredTotal: measuredTotalDataset,
+      measuredConcentration: measuredConcentrationDataset,
+      measuredVolume: measuredVolumeDataset,
+      defaultConcentration: defaultConcentrationDataset,
+    });
+
+    if (resolved.error) {
+      resultContainer.innerHTML = `<p class="error">${resolved.error}</p>`;
       return;
+    }
+
+    if (Number.isFinite(resolved.measuredTotal)) {
+      form.dataset.measuredTotal = String(resolved.measuredTotal);
     }
 
     const basePayload = {
       culture_id: form.dataset.cultureId,
-      cell_concentration: cellConcentrationInput,
+      cell_concentration: resolved.concentration,
     };
 
     const buildSplitPayload = () => {
@@ -1700,6 +1802,20 @@ function initBulkProcessing() {
         cultureCell.appendChild(measurementMeta);
       }
 
+      if (culture.measured_cell_concentration != null) {
+        row.dataset.measuredConcentration = String(culture.measured_cell_concentration);
+      }
+      if (culture.measured_slurry_volume_ml != null) {
+        row.dataset.measuredVolume = String(culture.measured_slurry_volume_ml);
+      } else if (culture.default_slurry_volume_ml != null) {
+        row.dataset.measuredVolume = String(culture.default_slurry_volume_ml);
+      }
+      if (culture.default_cell_concentration != null) {
+        row.dataset.defaultConcentration = String(culture.default_cell_concentration);
+      } else {
+        row.dataset.defaultConcentration = '1000000';
+      }
+
       const plannerCell = row.insertCell();
       plannerCell.className = 'bulk-cell';
       plannerCell.innerHTML = `
@@ -1814,8 +1930,9 @@ function initBulkProcessing() {
             </label>
           </section>
           <label>
-            <span>Starting concentration (cells/mL)</span>
-            <input type="text" class="bulk-cell-concentration" />
+            <span>Measured yield (cells)</span>
+            <input type="text" class="bulk-measured-yield" />
+            <p class="form-hint">Optional override for harvested total.</p>
           </label>
           <div class="form-actions inline">
             <button type="button" class="button secondary small bulk-calc">Calculate</button>
@@ -1889,12 +2006,9 @@ function initBulkProcessing() {
       if (totalVolumeInput) {
         totalVolumeInput.value = '20';
       }
-      const startConcInput = row.querySelector('.bulk-cell-concentration');
-      if (startConcInput) {
-        const startValue = defaultConcentration(culture);
-        if (startValue !== '') {
-          startConcInput.value = String(startValue);
-        }
+      const measuredYieldInput = row.querySelector('.bulk-measured-yield');
+      if (measuredYieldInput && culture.measured_cells_total != null) {
+        measuredYieldInput.value = String(culture.measured_cells_total);
       }
 
       const dateInput = row.querySelector('.bulk-date');
@@ -2197,34 +2311,105 @@ function initBulkProcessing() {
     resultContainer.textContent = 'Calculating…';
   }
 
-  const concentrationField = row.querySelector('.bulk-cell-concentration');
-  const cellConcentration = concentrationField?.value || '';
-  if (!cellConcentration.trim()) {
+  const measuredYieldField = row.querySelector('.bulk-measured-yield');
+  let measuredYieldOverride = null;
+  if (measuredYieldField) {
+    const measuredYieldRaw = measuredYieldField.value?.trim();
+    if (measuredYieldRaw) {
+      measuredYieldOverride = parseNumericInput(measuredYieldRaw);
+      if (
+        measuredYieldOverride === null ||
+        !Number.isFinite(measuredYieldOverride) ||
+        measuredYieldOverride <= 0
+      ) {
+        if (resultContainer) {
+          resultContainer.innerHTML =
+            '<p class="error">Enter a valid measured yield (e.g. 1.5e7 cells) before calculating.</p>';
+        }
+        return;
+      }
+    }
+  }
+
+  let measuredTotal = Number.isFinite(measuredYieldOverride) ? measuredYieldOverride : null;
+  if (measuredTotal === null && row.dataset.measuredTotal) {
+    const parsedTotal = parseNumericInput(row.dataset.measuredTotal);
+    if (Number.isFinite(parsedTotal) && parsedTotal > 0) {
+      measuredTotal = parsedTotal;
+    }
+  }
+
+  let measuredVolume = null;
+  if (row.dataset.measuredVolume) {
+    const parsedVolume = parseNumericInput(row.dataset.measuredVolume);
+    if (Number.isFinite(parsedVolume) && parsedVolume > 0) {
+      measuredVolume = parsedVolume;
+    }
+  }
+  if (!Number.isFinite(measuredVolume) && culture?.measured_slurry_volume_ml != null) {
+    measuredVolume = culture.measured_slurry_volume_ml;
+  }
+  if (!Number.isFinite(measuredVolume) && culture?.default_slurry_volume_ml != null) {
+    measuredVolume = culture.default_slurry_volume_ml;
+  }
+  if (!Number.isFinite(measuredVolume)) {
+    measuredVolume = null;
+  }
+
+  let measuredConcentration = null;
+  if (row.dataset.measuredConcentration) {
+    const parsedConcentration = parseNumericInput(row.dataset.measuredConcentration);
+    if (Number.isFinite(parsedConcentration) && parsedConcentration > 0) {
+      measuredConcentration = parsedConcentration;
+    }
+  }
+  if (!Number.isFinite(measuredConcentration) && culture?.measured_cell_concentration != null) {
+    measuredConcentration = culture.measured_cell_concentration;
+  }
+
+  if (measuredTotal === null && measuredConcentration && measuredVolume) {
+    measuredTotal = measuredConcentration * measuredVolume;
+  }
+
+  let defaultConcentration = null;
+  if (row.dataset.defaultConcentration) {
+    const parsedDefault = parseNumericInput(row.dataset.defaultConcentration);
+    if (Number.isFinite(parsedDefault) && parsedDefault > 0) {
+      defaultConcentration = parsedDefault;
+    }
+  }
+  if (!Number.isFinite(defaultConcentration) && culture?.default_cell_concentration != null) {
+    defaultConcentration = culture.default_cell_concentration;
+  }
+  if (!Number.isFinite(defaultConcentration) || defaultConcentration <= 0) {
+    defaultConcentration = 1_000_000;
+  }
+
+  const resolvedConcentration = resolveSeedingConcentration({
+    measuredYieldOverride,
+    measuredTotal,
+    measuredConcentration,
+    measuredVolume,
+    defaultConcentration,
+  });
+
+  if (resolvedConcentration.error) {
     if (resultContainer) {
-      resultContainer.innerHTML =
-        '<p class="error">Enter the starting cell concentration before calculating.</p>';
+      resultContainer.innerHTML = `<p class="error">${resolvedConcentration.error}</p>`;
     }
     return;
   }
 
-  let measuredTotal = null;
-  if (row.dataset.measuredTotal) {
-    measuredTotal = parseNumericInput(row.dataset.measuredTotal);
+  const cellConcentration = resolvedConcentration.concentration;
+  if (Number.isFinite(resolvedConcentration.measuredTotal)) {
+    measuredTotal = resolvedConcentration.measuredTotal;
+    row.dataset.measuredTotal = String(resolvedConcentration.measuredTotal);
+  } else if (Number.isFinite(measuredTotal)) {
+    row.dataset.measuredTotal = String(measuredTotal);
+  } else {
+    delete row.dataset.measuredTotal;
   }
-  if (
-    (measuredTotal === null || Number.isNaN(measuredTotal)) &&
-    culture?.measured_cell_concentration != null &&
-    culture?.measured_slurry_volume_ml != null
-  ) {
-    measuredTotal =
-      culture.measured_cell_concentration * culture.measured_slurry_volume_ml;
-    if (Number.isFinite(measuredTotal)) {
-      row.dataset.measuredTotal = String(measuredTotal);
-    }
-  }
-  if (!Number.isFinite(measuredTotal)) {
-    measuredTotal = null;
-  }
+  row.dataset.cellConcentration = String(cellConcentration);
 
   const manualValue = row.querySelector('.bulk-remainder-manual')?.value || '';
   const remainderMode = row.dataset.remainderMode || 'calculate';
@@ -2519,12 +2704,27 @@ function initBulkProcessing() {
           }
           return element.value || '';
         };
+        const datasetConcentration = row.dataset.cellConcentration || '';
+        const datasetMeasuredVolume = row.dataset.measuredVolume || '';
+        const measuredVolumeValue = datasetMeasuredVolume
+          ? datasetMeasuredVolume
+          : culture?.measured_slurry_volume_ml != null
+          ? String(culture.measured_slurry_volume_ml)
+          : '';
+        const measuredConcentrationValue = datasetConcentration
+          ? datasetConcentration
+          : culture?.measured_cell_concentration != null
+          ? String(culture.measured_cell_concentration)
+          : culture?.default_cell_concentration != null
+          ? String(culture.default_cell_concentration)
+          : '';
+        const cellConcentrationValue = measuredConcentrationValue;
         const entry = {
           culture_id: id,
-          measured_cell_concentration: culture?.measured_cell_concentration ?? '',
-          measured_slurry_volume_ml: culture?.measured_slurry_volume_ml ?? '',
+          measured_cell_concentration: measuredConcentrationValue,
+          measured_slurry_volume_ml: measuredVolumeValue,
           measured_viability_percent: culture?.measured_viability_percent ?? '',
-          cell_concentration: readValue('.bulk-cell-concentration'),
+          cell_concentration: cellConcentrationValue,
           vessel_id: readValue('.bulk-vessel'),
           vessels_used: readValue('.bulk-vessels-used'),
           seeded_cells: readValue('.bulk-seeded'),
@@ -2547,15 +2747,31 @@ function initBulkProcessing() {
         if (override) {
           entry.doubling_time_override = override;
         }
-        const cultureMeasurements = culture;
+        let measuredYieldValue = null;
+        const measuredYieldInput = row.querySelector('.bulk-measured-yield');
+        if (measuredYieldInput && measuredYieldInput.value?.trim()) {
+          const parsedYield = parseNumericInput(measuredYieldInput.value);
+          if (Number.isFinite(parsedYield) && parsedYield > 0) {
+            measuredYieldValue = parsedYield;
+            row.dataset.measuredTotal = String(parsedYield);
+          }
+        }
+        if (measuredYieldValue === null && row.dataset.measuredTotal) {
+          const parsedTotal = parseNumericInput(row.dataset.measuredTotal);
+          if (Number.isFinite(parsedTotal) && parsedTotal > 0) {
+            measuredYieldValue = parsedTotal;
+          }
+        }
         if (
-          cultureMeasurements?.measured_cell_concentration != null &&
-          cultureMeasurements?.measured_slurry_volume_ml != null
+          measuredYieldValue === null &&
+          culture?.measured_cell_concentration != null &&
+          culture?.measured_slurry_volume_ml != null
         ) {
-          const total =
-            cultureMeasurements.measured_cell_concentration *
-            cultureMeasurements.measured_slurry_volume_ml;
-          entry.measured_yield_millions = total / 1_000_000;
+          measuredYieldValue =
+            culture.measured_cell_concentration * culture.measured_slurry_volume_ml;
+        }
+        if (Number.isFinite(measuredYieldValue)) {
+          entry.measured_yield_millions = measuredYieldValue / 1_000_000;
         }
         if (operation === MODE_SEED_SPLIT) {
           entry.seed_mode = row.dataset.seedMode || 'cells';
@@ -2610,6 +2826,10 @@ function initBulkProcessing() {
             culture.measured_cells_total = total;
             const plannerRow = plannerRowsById.get(id);
             if (plannerRow) {
+              plannerRow.dataset.measuredConcentration = String(
+                culture.measured_cell_concentration,
+              );
+              plannerRow.dataset.measuredVolume = String(culture.measured_slurry_volume_ml);
               plannerRow.dataset.measuredTotal = String(total);
             }
           }
@@ -2682,6 +2902,10 @@ function initBulkProcessing() {
             culture.measured_cells_total = total;
             const plannerRow = plannerRowsById.get(cultureId);
             if (plannerRow) {
+              plannerRow.dataset.measuredConcentration = String(
+                culture.measured_cell_concentration,
+              );
+              plannerRow.dataset.measuredVolume = String(culture.measured_slurry_volume_ml);
               plannerRow.dataset.measuredTotal = String(total);
             }
           }

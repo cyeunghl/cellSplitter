@@ -304,6 +304,9 @@
           data-next-passage="{{ culture.next_passage_number }}"
           data-today="{{ today.isoformat() }}"
           data-measured-total="{{ '%.6g' % culture.measured_cells_total if culture.measured_cells_total is not none else '' }}"
+          data-measured-concentration="{{ '%.6g' % culture.measured_cell_concentration if culture.measured_cell_concentration is not none else '' }}"
+          data-measured-volume="{{ '%.6g' % culture.measured_slurry_volume_ml if culture.measured_slurry_volume_ml is not none else '' }}"
+          data-default-concentration="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '1e6' }}"
         >
           <div class="mode-toggle" role="radiogroup" aria-label="Seeding workflow">
             <label>
@@ -495,14 +498,14 @@
             </label>
           </section>
           <label>
-            <span>Cell concentration (cells/mL)</span>
+            <span>Measured yield (cells)</span>
             <input
               type="text"
-              name="cell_concentration"
-              value="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '1e6' }}"
-              placeholder="e.g. 1.5e6"
-              required
+              name="measured_yield_override"
+              value="{{ '%.6g' % culture.measured_cells_total if culture.measured_cells_total is not none else '' }}"
+              placeholder="e.g. 2e7"
             />
+            <p class="form-hint">Optional override for harvested cell total.</p>
           </label>
           <button class="button primary" type="submit">Calculate plan</button>
         </form>
