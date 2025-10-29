@@ -99,9 +99,22 @@ a:hover {
   margin-top: 0.25rem;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .header-actions {
   display: flex;
   gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .header-actions form {
@@ -833,6 +846,13 @@ label.checkbox input[type='checkbox'] {
   margin-top: 1.5rem;
 }
 
+.label-card .card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
 .label-card .select-col {
   width: 2.5rem;
 }
@@ -863,6 +883,63 @@ label.checkbox input[type='checkbox'] {
   font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
   font-size: 0.9rem;
   line-height: 1.4;
+}
+
+.collapsible-card .card-header {
+  padding-bottom: 0;
+}
+
+.collapsible-header {
+  padding: 0;
+}
+
+.collapse-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  padding: 1rem 1.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.collapse-toggle:hover,
+.collapse-toggle:focus {
+  background: rgba(70, 130, 180, 0.08);
+}
+
+.collapse-toggle h3 {
+  margin: 0;
+}
+
+.collapse-toggle p {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+}
+
+.collapse-indicator {
+  font-size: 1.1rem;
+}
+
+.collapsible-body {
+  padding: 0 1.25rem 1.25rem;
+}
+
+.add-label-form {
+  margin-top: 1rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.add-label-form input {
+  flex: 1 1 240px;
+  min-width: 200px;
 }
 
 .table td.actions .button {

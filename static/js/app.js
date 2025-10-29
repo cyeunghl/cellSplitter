@@ -1574,14 +1574,14 @@ function attachSeedingOperationSwitcher() {
   updateSubmitAction();
 }
 
-function attachMycoTableCopyHandlers() {
-  const buttons = document.querySelectorAll('.copy-myco-table');
+function attachLabelTableCopyHandlers() {
+  const buttons = document.querySelectorAll('[data-copy-label-table]');
   if (!buttons.length) {
     return;
   }
 
   buttons.forEach((button) => {
-    const tableId = button.dataset.tableId;
+    const tableId = button.dataset.copyLabelTable;
     if (!tableId) {
       return;
     }
@@ -1606,16 +1606,16 @@ function attachMycoTableCopyHandlers() {
       const lines = rowsToCopy
         .map((row) => {
           const label = row.querySelector('.label-snippet');
-          const culture = row.querySelector('.myco-culture');
+          const extra = row.querySelector('.label-extra');
           const labelText = label ? label.textContent.trim() : '';
-          const cultureText = culture ? culture.textContent.trim() : '';
-          if (!labelText && !cultureText) {
+          const extraText = extra ? extra.textContent.trim() : '';
+          if (!labelText && !extraText) {
             return '';
           }
-          if (!cultureText) {
+          if (!extraText) {
             return labelText;
           }
-          return `${labelText}\t${cultureText}`;
+          return `${labelText}\t${extraText}`;
         })
         .filter((line) => line);
 
@@ -1680,14 +1680,14 @@ function attachPassageInfoButtons() {
   });
 }
 
-function attachMycoSelectAllHandlers() {
-  const buttons = document.querySelectorAll('.copy-myco-select-all');
+function attachLabelTableSelectAllHandlers() {
+  const buttons = document.querySelectorAll('[data-select-label-table]');
   if (!buttons.length) {
     return;
   }
 
   buttons.forEach((button) => {
-    const tableId = button.dataset.tableId;
+    const tableId = button.dataset.selectLabelTable;
     if (!tableId) {
       return;
     }
@@ -1698,18 +1698,53 @@ function attachMycoSelectAllHandlers() {
     }
 
     button.addEventListener('click', () => {
-      const checkboxes = Array.from(
-        table.querySelectorAll('tbody .label-select')
-      );
+      const checkboxes = Array.from(table.querySelectorAll('tbody .label-select'));
       if (!checkboxes.length) {
         return;
       }
 
       const shouldSelectAll = !checkboxes.every((checkbox) => checkbox.checked);
       checkboxes.forEach((checkbox) => {
+        // eslint-disable-next-line no-param-reassign
         checkbox.checked = shouldSelectAll;
       });
     });
+  });
+}
+
+function attachCollapsibleCards() {
+  const toggles = document.querySelectorAll('[data-collapse-target]');
+  if (!toggles.length) {
+    return;
+  }
+
+  toggles.forEach((toggle) => {
+    const targetId = toggle.dataset.collapseTarget;
+    if (!targetId) {
+      return;
+    }
+
+    const target = document.getElementById(targetId);
+    if (!target) {
+      return;
+    }
+
+    const indicator = toggle.querySelector('.collapse-indicator');
+
+    const setExpanded = (expanded) => {
+      toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      target.hidden = !expanded;
+      if (indicator) {
+        indicator.textContent = expanded ? '-' : '+';
+      }
+    };
+
+    toggle.addEventListener('click', () => {
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      setExpanded(!expanded);
+    });
+
+    setExpanded(false);
   });
 }
 
@@ -3610,12 +3645,13 @@ document.addEventListener('DOMContentLoaded', () => {
   attachSeedingLabelCopyHandler();
   attachSeedingOperationSwitcher();
   attachSeedingFormHandler();
-  attachMycoSelectAllHandlers();
-  attachMycoTableCopyHandlers();
+  attachLabelTableSelectAllHandlers();
+  attachLabelTableCopyHandlers();
   attachMycoStatusForms();
   attachPassageInfoButtons();
   attachCulturePrintHandlers();
   initBulkProcessing();
   attachEndCultureHandlers();
   attachCloneCultureHandlers();
+  attachCollapsibleCards();
 });

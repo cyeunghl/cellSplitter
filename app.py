@@ -60,6 +60,17 @@ HARVEST_VOLUME_HINTS: list[tuple[str, float]] = [
 PASSAGE_WARNING_SETTING = "passage_warning_threshold"
 DEFAULT_PASSAGE_WARNING = 20
 
+STALE_WARNING_SETTING = "stale_cutoff_days"
+DEFAULT_STALE_CUTOFF_DAYS = 4
+
+LABEL_LIBRARY_SETTING = "label_library"
+DEFAULT_LABEL_LIBRARY = [
+    "+10% FBS + anti-/anti",
+    "FBS",
+    "0.05% trypsin-EDTA",
+    "CTG reagent",
+]
+
 MYCO_STATUS_UNTESTED = "myco_untested"
 MYCO_STATUS_TESTED = "myco_tested"
 MYCO_STATUS_FREE = "myco_free"
@@ -135,6 +146,7 @@ class Culture(db.Model):
     start_date = db.Column(db.Date, nullable=False, default=date.today)
     notes = db.Column(db.Text, nullable=True)
     ended_on = db.Column(db.Date, nullable=True)
+    last_handled_on = db.Column(db.Date, nullable=True)
     measured_cell_concentration = db.Column(db.Float, nullable=True)
     measured_slurry_volume_ml = db.Column(db.Float, nullable=True)
     pre_split_confluence_percent = db.Column(db.Integer, nullable=True)
@@ -282,6 +294,10 @@ def setup_database() -> None:
     ensure_columns()
     if Setting.get_value(PASSAGE_WARNING_SETTING) is None:
         Setting.set_value(PASSAGE_WARNING_SETTING, str(DEFAULT_PASSAGE_WARNING))
+    if Setting.get_value(STALE_WARNING_SETTING) is None:
+        Setting.set_value(STALE_WARNING_SETTING, str(DEFAULT_STALE_CUTOFF_DAYS))
+    if Setting.get_value(LABEL_LIBRARY_SETTING) is None:
+        Setting.set_value(LABEL_LIBRARY_SETTING, json.dumps(DEFAULT_LABEL_LIBRARY))
 
 
 def ensure_columns() -> None:
@@ -311,6 +327,8 @@ def ensure_columns() -> None:
             connection.execute(
                 text("ALTER TABLE culture ADD COLUMN measured_slurry_volume_ml FLOAT")
             )
+        if not has_column("culture", "last_handled_on"):
+            connection.execute(text("ALTER TABLE culture ADD COLUMN last_handled_on DATE"))
         if not has_column("culture", "pre_split_confluence_percent"):
             connection.execute(
                 text("ALTER TABLE culture ADD COLUMN pre_split_confluence_percent INTEGER")
@@ -340,6 +358,12 @@ def ensure_columns() -> None:
                 "UPDATE passage SET myco_status = :free WHERE myco_status = :tested"
             ),
             {"free": MYCO_STATUS_FREE, "tested": MYCO_STATUS_TESTED},
+        )
+        connection.execute(
+            text(
+                "UPDATE culture SET last_handled_on = start_date "
+                "WHERE last_handled_on IS NULL"
+            )
         )
 
 
@@ -494,6 +518,40 @@ def get_passage_warning_threshold() -> int:
     return max(1, value)
 
 
+def get_stale_cutoff_days() -> int:
+    raw = Setting.get_value(STALE_WARNING_SETTING)
+    if raw is None:
+        return DEFAULT_STALE_CUTOFF_DAYS
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_STALE_CUTOFF_DAYS
+    return max(0, value)
+
+
+def get_label_library() -> list[str]:
+    raw = Setting.get_value(LABEL_LIBRARY_SETTING)
+    if not raw:
+        return DEFAULT_LABEL_LIBRARY.copy()
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return DEFAULT_LABEL_LIBRARY.copy()
+    if not isinstance(data, list):
+        return DEFAULT_LABEL_LIBRARY.copy()
+    labels: list[str] = []
+    for entry in data:
+        if isinstance(entry, str):
+            cleaned = entry.strip()
+            if cleaned:
+                labels.append(cleaned)
+    return labels
+
+
+def save_label_library(labels: list[str]) -> None:
+    Setting.set_value(LABEL_LIBRARY_SETTING, json.dumps(labels))
+
+
 @app.route("/")
 def index():
     active_cultures = (
@@ -511,7 +569,8 @@ def index():
 
     today_value = date.today()
     passage_warning_threshold = get_passage_warning_threshold()
-    stale_cutoff_days = 4
+    stale_cutoff_days = get_stale_cutoff_days()
+    label_library = get_label_library()
 
     t75_vessel_id = None
     for vessel in vessels:
@@ -522,12 +581,15 @@ def index():
     bulk_culture_payload: list[dict] = []
     for culture in active_cultures:
         latest = culture.latest_passage
-        if latest is not None:
-            days_since_last_passage = (today_value - latest.date).days
-        else:
-            days_since_last_passage = (today_value - culture.start_date).days
-        culture.days_since_last_passage = days_since_last_passage
-        culture.is_stale = days_since_last_passage is not None and days_since_last_passage > stale_cutoff_days
+        last_activity_date = culture.start_date
+        if latest is not None and latest.date > last_activity_date:
+            last_activity_date = latest.date
+        if culture.last_handled_on and culture.last_handled_on > last_activity_date:
+            last_activity_date = culture.last_handled_on
+        days_since_last_activity = (today_value - last_activity_date).days
+
+        culture.days_since_last_passage = days_since_last_activity
+        culture.is_stale = days_since_last_activity is not None and days_since_last_activity > stale_cutoff_days
         culture.passage_warning_threshold = passage_warning_threshold
         culture.current_myco_status_value = culture.current_myco_status
         culture.current_myco_status_label = display_myco_status(culture.current_myco_status_value)
@@ -600,7 +662,7 @@ def index():
             "latest_vessel_name": latest_vessel_name,
             "default_slurry_volume_ml": default_slurry_volume_ml,
             "pre_split_confluence_percent": culture.pre_split_confluence_percent,
-            "days_since_last_passage": days_since_last_passage,
+            "days_since_last_passage": days_since_last_activity,
             "myco_status": culture.current_myco_status_value,
             "myco_status_locked": culture.myco_status_locked,
             "last_total_area_cm2": last_total_area,
@@ -636,6 +698,7 @@ def index():
         today=today_value,
         passage_warning_threshold=passage_warning_threshold,
         stale_cutoff_days=stale_cutoff_days,
+        label_library=label_library,
         myco_status_choices=MYCO_STATUS_CHOICES,
     )
 
@@ -656,6 +719,60 @@ def update_passage_threshold():
         return redirect(url_for("index"))
     Setting.set_value(PASSAGE_WARNING_SETTING, str(numeric))
     flash(f"Passage reminder threshold updated to P{numeric}.", "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/settings/stale-cutoff", methods=["POST"])
+def update_stale_cutoff():
+    raw_value = request.form.get("stale_cutoff_days")
+    if raw_value in (None, ""):
+        flash("Enter the number of days before a culture is considered stale.", "error")
+        return redirect(url_for("index"))
+    try:
+        numeric = int(raw_value)
+    except (TypeError, ValueError):
+        flash("Enter a whole number of days (e.g. 4).", "error")
+        return redirect(url_for("index"))
+    if numeric < 0:
+        flash("Days cannot be negative.", "error")
+        return redirect(url_for("index"))
+    Setting.set_value(STALE_WARNING_SETTING, str(numeric))
+    if numeric == 1:
+        message = "Stale reminder updates after 1 day of inactivity."
+    else:
+        message = f"Stale reminder updates after {numeric} days of inactivity."
+    flash(message, "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/labels", methods=["POST"])
+def add_label():
+    label_text = (request.form.get("label_text") or "").strip()
+    if not label_text:
+        flash("Enter label text before saving.", "error")
+        return redirect(url_for("index"))
+    if not label_text.isascii():
+        flash("Use ASCII characters for label text.", "error")
+        return redirect(url_for("index"))
+    labels = get_label_library()
+    labels.append(label_text)
+    save_label_library(labels)
+    flash("Label added to the library.", "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/labels/<int:label_index>/delete", methods=["POST"])
+def delete_label(label_index: int):
+    labels = get_label_library()
+    if label_index < 0 or label_index >= len(labels):
+        flash("Selected label could not be found.", "error")
+        return redirect(url_for("index"))
+    removed = labels.pop(label_index)
+    save_label_library(labels)
+    if removed:
+        flash(f"Removed label '{removed}'.", "info")
+    else:
+        flash("Label removed.", "info")
     return redirect(url_for("index"))
 
 
@@ -699,6 +816,7 @@ def create_culture():
         name=name,
         cell_line=cell_line,
         start_date=start_date,
+        last_handled_on=start_date,
         notes=culture_notes,
     )
     db.session.add(culture)
@@ -771,6 +889,7 @@ def clone_culture(culture_id: int):
         name=name,
         cell_line=culture.cell_line,
         start_date=today_value,
+        last_handled_on=today_value,
         notes=culture.notes,
     )
     db.session.add(new_culture)
@@ -999,6 +1118,7 @@ def add_passage(culture_id: int):
     db.session.add(passage)
 
     culture.pre_split_confluence_percent = None
+    culture.last_handled_on = passage_date
     db.session.commit()
 
     flash(
@@ -1717,6 +1837,7 @@ def create_bulk_passages():
         db.session.add(passage)
 
         culture.pre_split_confluence_percent = None
+        culture.last_handled_on = passage_date
 
         created_passages.append(
             {
@@ -1913,9 +2034,10 @@ def refresh_media(culture_id: int):
         else:
             culture.notes = entry
 
+    culture.last_handled_on = date.today()
     db.session.commit()
-    flash(f"Logged media refresh for '{culture.name}'.", "success")
-    return redirect(url_for("view_culture", culture_id=culture.id))
+    flash("Media refreshed.", "success")
+    return redirect(url_for("index"))
 
 
 @app.route("/culture/<int:culture_id>/myco", methods=["POST"])

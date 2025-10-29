@@ -14,6 +14,22 @@
           <form
             class="inline-form threshold-form"
             method="post"
+            action="{{ url_for('update_stale_cutoff') }}"
+          >
+            <input
+              type="number"
+              name="stale_cutoff_days"
+              value="{{ stale_cutoff_days }}"
+              min="0"
+              step="1"
+              aria-label="Days before stale reminder"
+              class="input-small"
+            />
+            <button class="button secondary" type="submit">Set stale days</button>
+          </form>
+          <form
+            class="inline-form threshold-form"
+            method="post"
             action="{{ url_for('update_passage_threshold') }}"
           >
             <input
@@ -242,63 +258,151 @@
           <div class="bulk-output" id="bulk-label-output" hidden></div>
         </div>
       </article>
-      <article class="card label-card">
-        <header class="card-header with-actions">
-          <div>
-            <h3>Myco test labels</h3>
-            <p>Quick label text for active cultures with today&rsquo;s date and initials.</p>
-          </div>
+      <article class="card label-card collapsible-card" data-collapsible>
+        <header class="card-header collapsible-header">
+          <button
+            type="button"
+            class="collapse-toggle"
+            data-collapse-target="myco-label-body"
+            aria-expanded="false"
+          >
+            <div>
+              <h3>Myco test labels</h3>
+              <p>Quick label text for active cultures with today&rsquo;s date and initials.</p>
+            </div>
+            <span class="collapse-indicator" aria-hidden="true">+</span>
+          </button>
+        </header>
+        <div class="card-body collapsible-body" id="myco-label-body" hidden>
           <div class="card-actions">
             <button
               type="button"
-              class="button ghost copy-myco-select-all"
-              data-table-id="myco-label-table"
+              class="button ghost"
+              data-select-label-table="myco-label-table"
             >
               Select all
             </button>
             <button
               type="button"
-              class="button secondary copy-myco-table"
-              data-table-id="myco-label-table"
+              class="button secondary"
+              data-copy-label-table="myco-label-table"
             >
               Copy table
             </button>
           </div>
-        </header>
-        <div class="card-body table-wrapper">
-          <table class="table label-table" id="myco-label-table">
-            <thead>
-              <tr>
-                <th scope="col" class="select-col" aria-label="Select label"></th>
-                <th scope="col">Label text</th>
-                <th scope="col">Culture</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for culture in active_cultures %}
-                {% set label_text = culture.name ~ ' ' ~ today.strftime('%Y-%m-%d') ~ ' CY' %}
+          <div class="table-wrapper">
+            <table class="table label-table" id="myco-label-table">
+              <thead>
                 <tr>
-                  <td class="select-cell">
-                    <input
-                      type="checkbox"
-                      class="label-select"
-                      name="myco-select-{{ loop.index }}"
-                      aria-label="Select label for {{ culture.name }}"
-                    />
-                  </td>
-                  <td class="wrap">
-                    <pre class="label-snippet">{{ label_text }}</pre>
-                  </td>
-                  <td class="myco-culture">{{ culture.name }}</td>
+                  <th scope="col" class="select-col" aria-label="Select label"></th>
+                  <th scope="col">Label text</th>
+                  <th scope="col">Culture</th>
                 </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {% for culture in active_cultures %}
+                  {% set label_text = culture.name ~ ' ' ~ today.strftime('%Y-%m-%d') ~ ' CY' %}
+                  <tr>
+                    <td class="select-cell">
+                      <input
+                        type="checkbox"
+                        class="label-select"
+                        name="myco-select-{{ loop.index }}"
+                        aria-label="Select label for {{ culture.name }}"
+                      />
+                    </td>
+                    <td class="wrap">
+                      <pre class="label-snippet">{{ label_text }}</pre>
+                    </td>
+                    <td class="label-extra">{{ culture.name }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
         </div>
       </article>
     {% else %}
       <p class="empty-state">No active cultures yet. Create one below to get started.</p>
     {% endif %}
+    <article class="card label-card">
+      <header class="card-header">
+        <h3>Label library</h3>
+        <p>Save quick clipboard snippets for frequently used reagents.</p>
+      </header>
+      <div class="card-body">
+        <div class="card-actions">
+          <button
+            type="button"
+            class="button ghost"
+            data-select-label-table="label-library-table"
+          >
+            Select all
+          </button>
+          <button
+            type="button"
+            class="button secondary"
+            data-copy-label-table="label-library-table"
+          >
+            Copy labels
+          </button>
+        </div>
+        <div class="table-wrapper">
+          <table class="table label-table" id="label-library-table">
+            <thead>
+              <tr>
+                <th scope="col" class="select-col" aria-label="Select label"></th>
+                <th scope="col">Label text</th>
+                <th scope="col" class="actions-column">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if label_library %}
+                {% for label in label_library %}
+                  <tr>
+                    <td class="select-cell">
+                      <input
+                        type="checkbox"
+                        class="label-select"
+                        name="library-select-{{ loop.index }}"
+                        aria-label="Select saved label {{ loop.index }}"
+                      />
+                    </td>
+                    <td class="wrap">
+                      <pre class="label-snippet">{{ label }}</pre>
+                    </td>
+                    <td class="actions">
+                      <form
+                        class="inline-form"
+                        method="post"
+                        action="{{ url_for('delete_label', label_index=loop.index0) }}"
+                      >
+                        <button class="button ghost small" type="submit">Delete</button>
+                      </form>
+                    </td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                <tr>
+                  <td colspan="3" class="empty-state">No saved labels yet.</td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+        <form class="inline-form add-label-form" method="post" action="{{ url_for('add_label') }}">
+          <label class="sr-only" for="new-label-text">New label text</label>
+          <input
+            type="text"
+            id="new-label-text"
+            name="label_text"
+            placeholder="Enter label text (ASCII only)"
+            required
+          />
+          <button class="button secondary" type="submit">Add label</button>
+        </form>
+      </div>
+    </article>
   </section>
 
   <section class="section">
