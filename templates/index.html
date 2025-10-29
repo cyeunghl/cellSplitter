@@ -266,14 +266,40 @@
             data-collapse-target="myco-label-body"
             aria-expanded="false"
           >
-            <div>
-              <h3>Myco test labels</h3>
-              <p>Quick label text for active cultures with today&rsquo;s date and initials.</p>
-            </div>
+              <div>
+                <h3>Myco test labels</h3>
+                <p>Quick label text for active cultures with optional date and notes.</p>
+              </div>
             <span class="collapse-indicator" aria-hidden="true">+</span>
           </button>
         </header>
         <div class="card-body collapsible-body" id="myco-label-body" hidden>
+          <div
+            class="label-append-controls"
+            id="myco-label-controls"
+            data-label-append-controls
+            data-today="{{ today.strftime('%Y-%m-%d') }}"
+            data-append-date="true"
+          >
+            <button
+              type="button"
+              class="button ghost small"
+              data-append-today
+              aria-pressed="true"
+            >
+              Append today's date
+            </button>
+            <div class="append-text-group">
+              <label class="sr-only" for="myco-label-append-text">Extra label text</label>
+              <input
+                type="text"
+                id="myco-label-append-text"
+                data-append-text
+                placeholder="Optional extra text to append"
+                autocomplete="off"
+              />
+            </div>
+          </div>
           <div class="card-actions">
             <button
               type="button"
@@ -286,6 +312,7 @@
               type="button"
               class="button secondary"
               data-copy-label-table="myco-label-table"
+              data-label-controls="myco-label-controls"
             >
               Copy table
             </button>
@@ -301,7 +328,7 @@
               </thead>
               <tbody>
                 {% for culture in active_cultures %}
-                  {% set label_text = culture.name ~ ' ' ~ today.strftime('%Y-%m-%d') ~ ' CY' %}
+                  {% set label_text = culture.name %}
                   <tr>
                     <td class="select-cell">
                       <input
@@ -354,7 +381,7 @@
             data-append-today
             aria-pressed="false"
           >
-            Append today&rsquo;s date
+            Append today's date
           </button>
           <div class="append-text-group">
             <label class="sr-only" for="label-append-text">Extra label text</label>

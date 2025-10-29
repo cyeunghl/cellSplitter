@@ -99,7 +99,8 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 - Copy the generated label text after a seeding or dilution calculation to print or share
   culture labels with consistent naming.
 - Need a quick mycoplasma check run? Use the dashboard’s Myco test labels table to copy
-  today’s culture/date/CY label text in bulk.
+  culture labels and optionally append today’s date or extra text using the same controls
+  as the label library.
 - Use the Myco status dropdowns beside each culture (or the passage history header) to
   flag cultures as Myco-free, tested, untested, or contaminated as you progress through
   QC.
