@@ -110,8 +110,9 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
   planner inputs, and passage saves for several cultures at once.
 - Adjust the passage reminder threshold and the “last handled” day cutoff from the
   dashboard header to customize when warnings appear for long-running cultures.
-- Use the label library at the bottom of the dashboard to keep reagent or workflow
-  snippets handy—select specific entries or copy them all in one click.
+- Use the collapsible label library at the bottom of the dashboard to keep reagent or
+  workflow snippets handy—toggle today’s date on with a button, append optional freeform
+  text, select specific entries, or copy them all in one click.
 - End a culture when you are finished working with it to tuck it into the archived list;
   you can reactivate it later if needed, or permanently delete archived cultures from the
   dashboard when their records are no longer required.

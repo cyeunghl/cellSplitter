@@ -325,12 +325,48 @@
     {% else %}
       <p class="empty-state">No active cultures yet. Create one below to get started.</p>
     {% endif %}
-    <article class="card label-card">
-      <header class="card-header">
-        <h3>Label library</h3>
-        <p>Save quick clipboard snippets for frequently used reagents.</p>
+    <article class="card label-card collapsible-card" data-collapsible>
+      <header class="card-header collapsible-header">
+        <button
+          type="button"
+          class="collapse-toggle"
+          data-collapse-target="label-library-body"
+          aria-expanded="false"
+        >
+          <div>
+            <h3>Label library</h3>
+            <p>Save quick clipboard snippets for frequently used reagents.</p>
+          </div>
+          <span class="collapse-indicator" aria-hidden="true">+</span>
+        </button>
       </header>
-      <div class="card-body">
+      <div class="card-body collapsible-body" id="label-library-body" hidden>
+        <div
+          class="label-append-controls"
+          id="label-library-controls"
+          data-label-append-controls
+          data-today="{{ today.strftime('%Y-%m-%d') }}"
+          data-append-date="false"
+        >
+          <button
+            type="button"
+            class="button ghost small"
+            data-append-today
+            aria-pressed="false"
+          >
+            Append today&rsquo;s date
+          </button>
+          <div class="append-text-group">
+            <label class="sr-only" for="label-append-text">Extra label text</label>
+            <input
+              type="text"
+              id="label-append-text"
+              data-append-text
+              placeholder="Optional extra text to append"
+              autocomplete="off"
+            />
+          </div>
+        </div>
         <div class="card-actions">
           <button
             type="button"
@@ -343,6 +379,7 @@
             type="button"
             class="button secondary"
             data-copy-label-table="label-library-table"
+            data-label-controls="label-library-controls"
           >
             Copy labels
           </button>

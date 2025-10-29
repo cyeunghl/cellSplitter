@@ -885,6 +885,36 @@ label.checkbox input[type='checkbox'] {
   line-height: 1.4;
 }
 
+.label-append-controls {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.label-append-controls .append-text-group {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.label-append-controls input[type='text'] {
+  min-width: 12rem;
+}
+
+.button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.button.ghost[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+
 .collapsible-card .card-header {
   padding-bottom: 0;
 }

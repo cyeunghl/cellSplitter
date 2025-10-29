@@ -1574,6 +1574,43 @@ function attachSeedingOperationSwitcher() {
   updateSubmitAction();
 }
 
+function applyLabelAugments(text, appendDate, dateValue, appendExtra) {
+  let output = text.trim();
+  if (appendDate && dateValue) {
+    output = output ? `${output} ${dateValue}` : dateValue;
+  }
+  if (appendExtra) {
+    output = output ? `${output} ${appendExtra}` : appendExtra;
+  }
+  return output;
+}
+
+function attachLabelAppendControls() {
+  const groups = document.querySelectorAll('[data-label-append-controls]');
+  if (!groups.length) {
+    return;
+  }
+
+  groups.forEach((group) => {
+    const dateButton = group.querySelector('[data-append-today]');
+    const setState = (active) => {
+      group.dataset.appendDate = active ? 'true' : 'false';
+      if (dateButton) {
+        dateButton.setAttribute('aria-pressed', active ? 'true' : 'false');
+      }
+    };
+
+    if (dateButton) {
+      dateButton.addEventListener('click', () => {
+        const active = group.dataset.appendDate === 'true';
+        setState(!active);
+      });
+    }
+
+    setState(group.dataset.appendDate === 'true');
+  });
+}
+
 function attachLabelTableCopyHandlers() {
   const buttons = document.querySelectorAll('[data-copy-label-table]');
   if (!buttons.length) {
@@ -1591,6 +1628,9 @@ function attachLabelTableCopyHandlers() {
       return;
     }
 
+    const controlsId = button.dataset.labelControls;
+    const controls = controlsId ? document.getElementById(controlsId) : null;
+
     button.addEventListener('click', async () => {
       const rows = Array.from(table.querySelectorAll('tbody tr'));
       if (!rows.length) {
@@ -1603,11 +1643,19 @@ function attachLabelTableCopyHandlers() {
       });
 
       const rowsToCopy = selectedRows.length ? selectedRows : rows;
+      const appendDate = controls?.dataset.appendDate === 'true';
+      const dateValue = controls?.dataset.today || '';
+      const appendInput = controls?.querySelector('[data-append-text]');
+      const appendExtra = appendInput ? appendInput.value.trim() : '';
+
       const lines = rowsToCopy
         .map((row) => {
           const label = row.querySelector('.label-snippet');
           const extra = row.querySelector('.label-extra');
-          const labelText = label ? label.textContent.trim() : '';
+          let labelText = label ? label.textContent.trim() : '';
+          if (controls) {
+            labelText = applyLabelAugments(labelText, appendDate, dateValue, appendExtra);
+          }
           const extraText = extra ? extra.textContent.trim() : '';
           if (!labelText && !extraText) {
             return '';
@@ -3645,6 +3693,7 @@ document.addEventListener('DOMContentLoaded', () => {
   attachSeedingLabelCopyHandler();
   attachSeedingOperationSwitcher();
   attachSeedingFormHandler();
+  attachLabelAppendControls();
   attachLabelTableSelectAllHandlers();
   attachLabelTableCopyHandlers();
   attachMycoStatusForms();
