@@ -28,6 +28,18 @@
             <button class="button secondary" type="submit">Reactivate culture</button>
           </form>
         {% else %}
+          <button
+            type="button"
+            class="button secondary"
+            data-clone-culture
+            data-clone-url="{{ url_for('clone_culture', culture_id=culture.id) }}"
+            data-culture-name="{{ culture.name }}"
+            data-default-name="{{ culture.name }}_copy"
+            data-default-vessel="{{ clone_default_vessel_id or '' }}"
+            data-default-seeded="{{ '%.6g' % clone_default_seeded if clone_default_seeded is not none else '' }}"
+          >
+            Clone culture
+          </button>
           <form method="post" action="{{ url_for('refresh_media', culture_id=culture.id) }}">
             <button class="button secondary" type="submit">Refresh media</button>
           </form>
@@ -63,36 +75,25 @@
             >
               {{ culture.current_myco_status_label }}
             </span>
-            <form
-              class="inline-form myco-status-form"
-              method="post"
-              action="{{ url_for('update_myco_status', culture_id=culture.id) }}"
-              data-myco-status-form
-              {% if culture.myco_status_locked %}data-myco-locked="true"{% endif %}
-            >
-              <input type="hidden" name="redirect" value="{{ url_for('view_culture', culture_id=culture.id) }}" />
-              <label>
-                <span class="visually-hidden">Myco status</span>
-                <select
-                  name="myco_status"
-                  class="myco-status-select"
-                  {% if culture.myco_status_locked %}disabled{% endif %}
-                  data-myco-select
-                >
-                  {% for value, label in myco_status_choices %}
-                    <option value="{{ value }}" {% if culture.current_myco_status_value == value %}selected{% endif %}>{{ label }}</option>
-                  {% endfor %}
-                </select>
-              </label>
-              <button
-                class="button ghost small"
-                type="submit"
-                {% if culture.myco_status_locked %}disabled{% endif %}
+            {% if not culture.myco_status_locked %}
+              <form
+                class="inline-form myco-status-form"
+                method="post"
+                action="{{ url_for('update_myco_status', culture_id=culture.id) }}"
+                data-myco-status-form
               >
-                Save
-              </button>
-            </form>
-            {% if culture.myco_status_locked %}
+                <input type="hidden" name="redirect" value="{{ url_for('view_culture', culture_id=culture.id) }}" />
+                <label>
+                  <span class="visually-hidden">Myco status</span>
+                  <select name="myco_status" class="myco-status-select" data-myco-select>
+                    {% for value, label in myco_status_choices %}
+                      <option value="{{ value }}" {% if culture.current_myco_status_value == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <button class="button ghost small" type="submit">Save</button>
+              </form>
+            {% else %}
               <p class="form-hint">Locked until the next passage.</p>
             {% endif %}
           </div>
@@ -648,4 +649,9 @@
       </article>
     </div>
   </section>
+{% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  <script id="clone-vessel-data" type="application/json">{{ clone_vessel_payload | tojson }}</script>
 {% endblock %}

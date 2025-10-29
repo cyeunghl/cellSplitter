@@ -139,8 +139,26 @@ function computeSeededCells({
 
   if (remainderMode === 'manual') {
     const numeric = parseNumericInput(manualValue);
-    if (numeric === null || !Number.isFinite(numeric)) {
+    if (numeric === null || !Number.isFinite(numeric) || numeric <= 0) {
       return { value: null, error: 'Enter cells seeded when using Seed a subset.' };
+    }
+    if (Number.isFinite(measuredTotal)) {
+      let available = measuredTotal;
+      if (seedData) {
+        const seedPortion =
+          pickNumericValue([
+            seedData.required_cells_total,
+            seedData.required_cells,
+            seedData.cells_needed,
+          ]) || 0;
+        available -= seedPortion;
+      }
+      if (available < 0) {
+        available = 0;
+      }
+      if (numeric > available) {
+        return { value: null, error: 'Seeded cells cannot exceed the measured yield.' };
+      }
     }
     return { value: numeric, error: null };
   }
@@ -647,6 +665,146 @@ function showEndReasonDialog() {
   });
 }
 
+function showCloneCultureDialog({
+  cultureName,
+  defaultName,
+  vessels,
+  defaultVesselId,
+  defaultSeeded,
+}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      if (overlay.parentElement) {
+        overlay.parentElement.removeChild(overlay);
+      }
+      document.removeEventListener('keydown', onKeyDown);
+    };
+    const finish = (value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+
+    const heading = document.createElement('h3');
+    heading.textContent = `Clone ${cultureName || 'culture'}`;
+    dialog.appendChild(heading);
+
+    const note = document.createElement('p');
+    note.className = 'dialog-note';
+    note.textContent = 'Create a new culture using the current passage details.';
+    dialog.appendChild(note);
+
+    const form = document.createElement('form');
+    form.className = 'form dialog-form';
+
+    const nameLabel = document.createElement('label');
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = 'Culture name';
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.required = true;
+    nameInput.value = defaultName || '';
+    nameLabel.append(nameSpan, nameInput);
+
+    const vesselLabel = document.createElement('label');
+    const vesselSpan = document.createElement('span');
+    vesselSpan.textContent = 'Vessel';
+    const vesselSelect = document.createElement('select');
+    vesselSelect.required = true;
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select a vessel…';
+    placeholder.disabled = true;
+    if (!defaultVesselId) {
+      placeholder.selected = true;
+    }
+    vesselSelect.appendChild(placeholder);
+    (vessels || []).forEach((record) => {
+      if (!record || record.id == null) {
+        return;
+      }
+      const option = document.createElement('option');
+      option.value = String(record.id);
+      option.textContent = record.area_cm2
+        ? `${record.name} (${record.area_cm2} cm²)`
+        : record.name;
+      if (defaultVesselId && String(record.id) === String(defaultVesselId)) {
+        option.selected = true;
+      }
+      vesselSelect.appendChild(option);
+    });
+    vesselLabel.append(vesselSpan, vesselSelect);
+
+    const seededLabel = document.createElement('label');
+    const seededSpan = document.createElement('span');
+    seededSpan.textContent = 'Cells seeded (total)';
+    const seededInput = document.createElement('input');
+    seededInput.type = 'text';
+    seededInput.placeholder = 'e.g. 2e6';
+    seededInput.required = true;
+    if (defaultSeeded) {
+      seededInput.value = defaultSeeded;
+    }
+    seededLabel.append(seededSpan, seededInput);
+
+    const hint = document.createElement('p');
+    hint.className = 'form-hint';
+    hint.textContent = 'Use K/M/B shorthand if helpful.';
+
+    const footer = document.createElement('div');
+    footer.className = 'dialog-footer';
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'button ghost';
+    cancelButton.textContent = 'Cancel';
+    cancelButton.addEventListener('click', () => finish(null));
+    const submitButton = document.createElement('button');
+    submitButton.type = 'submit';
+    submitButton.className = 'button primary';
+    submitButton.textContent = 'Clone culture';
+    footer.append(cancelButton, submitButton);
+
+    form.append(nameLabel, vesselLabel, seededLabel, hint, footer);
+    dialog.appendChild(form);
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        finish(null);
+      }
+    };
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (typeof form.reportValidity === 'function' && !form.reportValidity()) {
+        return;
+      }
+      const nameValue = nameInput.value.trim();
+      const vesselValue = vesselSelect.value;
+      const seededValue = seededInput.value.trim();
+      if (!nameValue || !vesselValue || !seededValue) {
+        return;
+      }
+      finish({ name: nameValue, vessel_id: vesselValue, seeded_cells: seededValue });
+    });
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKeyDown);
+    nameInput.focus();
+    nameInput.select();
+  });
+}
+
 function attachEndCultureHandlers() {
   const forms = document.querySelectorAll('form[data-end-culture-form]');
   if (!forms.length) {
@@ -673,6 +831,54 @@ function attachEndCultureHandlers() {
         form.submit();
       } finally {
         delete form.dataset.ending;
+      }
+    });
+  });
+}
+
+function attachCloneCultureHandlers() {
+  const buttons = document.querySelectorAll('[data-clone-culture]');
+  if (!buttons.length) {
+    return;
+  }
+
+  const vesselData = parseJSONScript('clone-vessel-data') || [];
+
+  buttons.forEach((button) => {
+    button.addEventListener('click', async () => {
+      const url = button.dataset.cloneUrl;
+      if (!url) {
+        return;
+      }
+      const result = await showCloneCultureDialog({
+        cultureName: button.dataset.cultureName || '',
+        defaultName: button.dataset.defaultName || '',
+        vessels: vesselData,
+        defaultVesselId: button.dataset.defaultVessel || '',
+        defaultSeeded: button.dataset.defaultSeeded || '',
+      });
+      if (!result) {
+        return;
+      }
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(result),
+        });
+        const data = await parseJsonResponse(response);
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Failed to clone culture.');
+        }
+        if (data.redirect_url) {
+          window.location.href = data.redirect_url;
+        } else if (data.culture_id) {
+          window.location.href = `/culture/${data.culture_id}`;
+        } else {
+          window.location.reload();
+        }
+      } catch (error) {
+        window.alert(error.message || 'Failed to clone culture.');
       }
     });
   });
@@ -1020,39 +1226,75 @@ function attachSeedingFormHandler() {
       }
     }
 
-    let seededCells = null;
-    let seededDisplay = '';
-    if (remainderMode === 'manual') {
-      const manualField = form.querySelector('input[name="remainder_manual_seeded"]');
-      const manualValue = manualField ? manualField.value.trim() : '';
-      const manualNumeric = parseNumericInput(manualValue);
-      if (!Number.isFinite(manualNumeric) || manualNumeric <= 0) {
-        submitHasErrors('Enter cells seeded when using Seed a subset.');
-        return;
-      }
-      seededCells = manualNumeric;
-    } else {
-      if (!Number.isFinite(resolved.measuredTotal)) {
-        submitHasErrors('Record a measured yield before choosing Seed everything.');
-        return;
-      }
-      seededCells = resolved.measuredTotal - seedPortionCells;
-      if (!Number.isFinite(seededCells)) {
-        seededCells = resolved.measuredTotal;
-      }
-      if (seededCells < 0) {
-        seededCells = 0;
+    const manualField = form.querySelector('input[name="remainder_manual_seeded"]');
+    const manualValue = manualField ? manualField.value.trim() : '';
+
+    let lastCalculation = null;
+    if (form.dataset.lastCalculation) {
+      try {
+        lastCalculation = JSON.parse(form.dataset.lastCalculation);
+      } catch (error) {
+        lastCalculation = null;
       }
     }
 
-    if (Number.isFinite(seededCells) && seededHidden) {
-      seededHidden.value = String(seededCells);
-    } else if (seededHidden) {
-      seededHidden.value = '';
+    let splitDataForSeed = null;
+    let seedDataForSeed = null;
+    if (lastCalculation) {
+      if (lastCalculation.mode === MODE_SEED_SPLIT) {
+        splitDataForSeed = lastCalculation.split || null;
+        seedDataForSeed = lastCalculation.seed || null;
+      } else {
+        splitDataForSeed = lastCalculation;
+      }
+    }
+
+    if (
+      operation === MODE_SEED_SPLIT &&
+      (!seedDataForSeed || Object.keys(seedDataForSeed).length === 0) &&
+      Number.isFinite(seedPortionCells) &&
+      seedPortionCells > 0
+    ) {
+      seedDataForSeed = {
+        required_cells_total: seedPortionCells,
+        required_cells: seedPortionCells,
+        cells_needed: seedPortionCells,
+      };
+    }
+
+    let seededCells = null;
+    let seededDisplay = '';
+    if (remainderMode !== 'calculate') {
+      const seededResult = computeSeededCells({
+        remainderMode,
+        manualValue,
+        measuredTotal: resolved.measuredTotal,
+        splitData: splitDataForSeed,
+        seedData: seedDataForSeed,
+      });
+      if (seededResult.error) {
+        submitHasErrors(seededResult.error);
+        return;
+      }
+      if (Number.isFinite(seededResult.value)) {
+        seededCells = seededResult.value;
+      } else if (remainderMode === 'all') {
+        seededDisplay = 'Seeded everything';
+      }
+    }
+
+    if (seededHidden) {
+      if (Number.isFinite(seededCells)) {
+        seededHidden.value = String(seededCells);
+      } else {
+        seededHidden.value = '';
+      }
     }
 
     if (Number.isFinite(seededCells)) {
       seededDisplay = formatCells(seededCells);
+    } else if (remainderMode === 'all' && !seededDisplay) {
+      seededDisplay = 'Seeded everything';
     }
 
     updateCalculatedSeeded(seededCells, seededDisplay);
@@ -1061,8 +1303,15 @@ function attachSeedingFormHandler() {
     const notesField = form.querySelector('#notes-field');
     if (notesField) {
       const purpose = form.querySelector('input[name="seed_purpose"]')?.value?.trim();
-      const noteText =
-        operation === MODE_SEED_SPLIT ? (purpose ? `Seed & split (${purpose})` : 'Seed & split') : 'Split culture';
+      let noteText =
+        operation === MODE_SEED_SPLIT
+          ? purpose
+            ? `Seed & split (${purpose})`
+            : 'Seed & split'
+          : 'Split culture';
+      if (remainderMode === 'all') {
+        noteText = `${noteText} - seeded everything`;
+      }
       applyGeneratedNote(notesField, noteText);
     }
 
@@ -2519,31 +2768,41 @@ function initBulkProcessing() {
       if (hasError) {
         window.alert(`${cultureName}: ${seededResult.error}`);
       }
-      let seededValue = seededResult.value;
-      if (
-        (seededValue === null || seededValue === undefined || Number.isNaN(seededValue)) &&
-        !hasError
-      ) {
-        seededValue = data.required_cells_total ?? '';
-      }
+
       if (seededInput) {
-        seededInput.value = seededValue ?? '';
+        if (remainderMode === 'all' && !Number.isFinite(seededResult.value) && !hasError) {
+          seededInput.value = '';
+          seededInput.placeholder = 'Seeded everything';
+        } else {
+          const fallbackValue = Number.isFinite(seededResult.value)
+            ? seededResult.value
+            : data.required_cells_total ?? '';
+          seededInput.value = fallbackValue ?? '';
+          if (seededInput.placeholder) {
+            seededInput.placeholder = '';
+          }
+        }
       }
 
-      const numericSeeded = Number.isFinite(seededResult.value)
-        ? seededResult.value
-        : parseNumericInput(seededValue);
-      if (Number.isFinite(numericSeeded)) {
-        row.dataset.calculatedSeeded = String(numericSeeded);
-        row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
-      } else if (data.required_cells_total !== undefined) {
-        row.dataset.calculatedSeeded = String(data.required_cells_total);
-        row.dataset.calculatedSeededDisplay =
-          data.required_cells_total_formatted ||
-          formatCells(data.required_cells_total);
-      } else {
+      if (remainderMode === 'all' && !Number.isFinite(seededResult.value) && !hasError) {
         delete row.dataset.calculatedSeeded;
-        delete row.dataset.calculatedSeededDisplay;
+        row.dataset.calculatedSeededDisplay = 'Seeded everything';
+      } else {
+        const numericSeeded = Number.isFinite(seededResult.value)
+          ? seededResult.value
+          : parseNumericInput(seededInput ? seededInput.value : data.required_cells_total);
+        if (Number.isFinite(numericSeeded)) {
+          row.dataset.calculatedSeeded = String(numericSeeded);
+          row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
+        } else if (data.required_cells_total !== undefined) {
+          row.dataset.calculatedSeeded = String(data.required_cells_total);
+          row.dataset.calculatedSeededDisplay =
+            data.required_cells_total_formatted ||
+            formatCells(data.required_cells_total);
+        } else {
+          delete row.dataset.calculatedSeeded;
+          delete row.dataset.calculatedSeededDisplay;
+        }
       }
 
       const vesselSelect = row.querySelector('.bulk-vessel');
@@ -2556,7 +2815,11 @@ function initBulkProcessing() {
       }
 
       const notesField = row.querySelector('.bulk-notes');
-      applyGeneratedNote(notesField, 'Split culture');
+      let splitNote = 'Split culture';
+      if (remainderMode === 'all') {
+        splitNote = `${splitNote} - seeded everything`;
+      }
+      applyGeneratedNote(notesField, splitNote);
 
       row.dataset.lastCalculation = JSON.stringify(data);
       return;
@@ -2674,35 +2937,48 @@ function initBulkProcessing() {
     if (hasError) {
       window.alert(`${cultureName}: ${seededResult.error}`);
     }
-    let seededValue = seededResult.value;
-    if (
-      (seededValue === null || seededValue === undefined || Number.isNaN(seededValue)) &&
-      !hasError
-    ) {
-      seededValue = splitData.required_cells_total ?? '';
-    }
+
     if (seededInput) {
-      seededInput.value = seededValue ?? '';
+      if (remainderMode === 'all' && !Number.isFinite(seededResult.value) && !hasError) {
+        seededInput.value = '';
+        seededInput.placeholder = 'Seeded everything';
+      } else {
+        const fallbackValue = Number.isFinite(seededResult.value)
+          ? seededResult.value
+          : splitData.required_cells_total ?? '';
+        seededInput.value = fallbackValue ?? '';
+        if (seededInput.placeholder) {
+          seededInput.placeholder = '';
+        }
+      }
     }
 
-    const numericSeeded = Number.isFinite(seededResult.value)
-      ? seededResult.value
-      : parseNumericInput(seededValue);
-    if (Number.isFinite(numericSeeded)) {
-      row.dataset.calculatedSeeded = String(numericSeeded);
-      row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
-    } else if (splitData.required_cells_total !== undefined) {
-      row.dataset.calculatedSeeded = String(splitData.required_cells_total);
-      row.dataset.calculatedSeededDisplay =
-        splitData.required_cells_total_formatted ||
-        formatCells(splitData.required_cells_total);
-    } else {
+    if (remainderMode === 'all' && !Number.isFinite(seededResult.value) && !hasError) {
       delete row.dataset.calculatedSeeded;
-      delete row.dataset.calculatedSeededDisplay;
+      row.dataset.calculatedSeededDisplay = 'Seeded everything';
+    } else {
+      const numericSeeded = Number.isFinite(seededResult.value)
+        ? seededResult.value
+        : parseNumericInput(seededInput ? seededInput.value : splitData.required_cells_total);
+      if (Number.isFinite(numericSeeded)) {
+        row.dataset.calculatedSeeded = String(numericSeeded);
+        row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
+      } else if (splitData.required_cells_total !== undefined) {
+        row.dataset.calculatedSeeded = String(splitData.required_cells_total);
+        row.dataset.calculatedSeededDisplay =
+          splitData.required_cells_total_formatted ||
+          formatCells(splitData.required_cells_total);
+      } else {
+        delete row.dataset.calculatedSeeded;
+        delete row.dataset.calculatedSeededDisplay;
+      }
     }
 
     const notesField = row.querySelector('.bulk-notes');
-    const noteText = seedPurpose ? `Seed & split (${seedPurpose})` : 'Seed & split';
+    let noteText = seedPurpose ? `Seed & split (${seedPurpose})` : 'Seed & split';
+    if (remainderMode === 'all') {
+      noteText = `${noteText} - seeded everything`;
+    }
     applyGeneratedNote(notesField, noteText);
 
     row.dataset.lastCalculation = JSON.stringify(combined);
@@ -3232,4 +3508,5 @@ document.addEventListener('DOMContentLoaded', () => {
   attachCulturePrintHandlers();
   initBulkProcessing();
   attachEndCultureHandlers();
+  attachCloneCultureHandlers();
 });

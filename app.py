@@ -700,6 +700,7 @@ def create_culture():
 
     initial_media = request.form.get("initial_media")
     initial_cell_concentration = parse_numeric(request.form.get("initial_cell_concentration"))
+    initial_seeded_cells = parse_numeric(request.form.get("initial_seeded_cells"))
     initial_doubling_time = parse_numeric(request.form.get("initial_doubling_time"))
     initial_notes = request.form.get("initial_notes")
 
@@ -711,6 +712,7 @@ def create_culture():
         cell_concentration=initial_cell_concentration,
         doubling_time_hours=initial_doubling_time,
         notes=initial_notes,
+        seeded_cells=initial_seeded_cells,
         myco_status=MYCO_STATUS_UNTESTED,
         myco_status_locked=False,
     )
@@ -722,6 +724,81 @@ def create_culture():
         "success",
     )
     return redirect(url_for("view_culture", culture_id=culture.id))
+
+
+@app.route("/culture/<int:culture_id>/clone", methods=["POST"])
+def clone_culture(culture_id: int):
+    culture = Culture.query.get_or_404(culture_id)
+    latest = culture.latest_passage
+
+    if latest is None:
+        return jsonify({"error": "Clone requires at least one recorded passage."}), 400
+
+    payload = request.get_json(silent=True)
+    if not payload:
+        payload = request.form.to_dict(flat=True)
+
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Provide a name for the cloned culture."}), 400
+
+    vessel_id_raw = payload.get("vessel_id")
+    if vessel_id_raw in (None, ""):
+        return jsonify({"error": "Select a vessel for the cloned culture."}), 400
+    try:
+        vessel_id = int(vessel_id_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Select a valid vessel for the cloned culture."}), 400
+
+    vessel = Vessel.query.get(vessel_id)
+    if vessel is None:
+        return jsonify({"error": "The selected vessel could not be found."}), 400
+
+    seeded_raw = payload.get("seeded_cells")
+    seeded_cells = parse_numeric(seeded_raw)
+    if seeded_cells is None or seeded_cells <= 0:
+        return jsonify({"error": "Enter the total cells seeded for the cloned culture."}), 400
+
+    today_value = date.today()
+
+    new_culture = Culture(
+        name=name,
+        cell_line=culture.cell_line,
+        start_date=today_value,
+        notes=culture.notes,
+    )
+    db.session.add(new_culture)
+    db.session.flush()
+
+    new_passage = Passage(
+        culture=new_culture,
+        passage_number=latest.passage_number,
+        date=today_value,
+        media=latest.media,
+        cell_concentration=latest.cell_concentration,
+        doubling_time_hours=latest.doubling_time_hours,
+        notes=latest.notes,
+        vessel=vessel,
+        vessels_used=1,
+        seeded_cells=seeded_cells,
+        myco_status=MYCO_STATUS_UNTESTED,
+        myco_status_locked=False,
+    )
+    db.session.add(new_passage)
+    db.session.commit()
+
+    flash(
+        f"Cloned culture '{culture.name}' as '{new_culture.name}'.",
+        "success",
+    )
+
+    return jsonify(
+        {
+            "success": True,
+            "culture_id": new_culture.id,
+            "redirect_url": url_for("view_culture", culture_id=new_culture.id),
+        }
+    )
 
 
 @app.route("/culture/<int:culture_id>")
@@ -755,6 +832,19 @@ def view_culture(culture_id: int):
     if default_viability is None and last_passage and last_passage.measured_viability_percent is not None:
         default_viability = last_passage.measured_viability_percent
 
+    clone_default_vessel_id = default_vessel_id
+    if last_passage and last_passage.vessel_id:
+        clone_default_vessel_id = last_passage.vessel_id
+    clone_default_seeded = (
+        last_passage.seeded_cells
+        if last_passage and last_passage.seeded_cells is not None
+        else None
+    )
+    clone_vessel_payload = [
+        {"id": vessel.id, "name": vessel.name, "area_cm2": vessel.area_cm2}
+        for vessel in vessels
+    ]
+
     culture.current_myco_status_value = culture.current_myco_status
     culture.current_myco_status_label = display_myco_status(culture.current_myco_status_value)
     culture.myco_status_locked = bool(last_passage and last_passage.myco_status_locked)
@@ -772,6 +862,9 @@ def view_culture(culture_id: int):
         default_viability_percent=default_viability,
         today=date.today(),
         myco_status_choices=MYCO_STATUS_CHOICES,
+        clone_vessel_payload=clone_vessel_payload,
+        clone_default_vessel_id=clone_default_vessel_id,
+        clone_default_seeded=clone_default_seeded,
     )
 
 

@@ -109,33 +109,22 @@
                     >
                       {{ culture.current_myco_status_label }}
                     </span>
-                    <form
-                      class="inline-form myco-status-form"
-                      method="post"
-                      action="{{ url_for('update_myco_status', culture_id=culture.id) }}"
-                      data-myco-status-form
-                      {% if culture.myco_status_locked %}data-myco-locked="true"{% endif %}
-                    >
-                      <input type="hidden" name="redirect" value="{{ url_for('index') }}" />
-                      <select
-                        name="myco_status"
-                        class="myco-status-select"
-                        {% if culture.myco_status_locked %}disabled{% endif %}
-                        data-myco-select
+                    {% if not culture.myco_status_locked %}
+                      <form
+                        class="inline-form myco-status-form"
+                        method="post"
+                        action="{{ url_for('update_myco_status', culture_id=culture.id) }}"
+                        data-myco-status-form
                       >
-                        {% for value, label in myco_status_choices %}
-                          <option value="{{ value }}" {% if culture.current_myco_status_value == value %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                      </select>
-                      <button
-                        class="button ghost small"
-                        type="submit"
-                        {% if culture.myco_status_locked %}disabled{% endif %}
-                      >
-                        Save
-                      </button>
-                    </form>
-                    {% if culture.myco_status_locked %}
+                        <input type="hidden" name="redirect" value="{{ url_for('index') }}" />
+                        <select name="myco_status" class="myco-status-select" data-myco-select>
+                          {% for value, label in myco_status_choices %}
+                            <option value="{{ value }}" {% if culture.current_myco_status_value == value %}selected{% endif %}>{{ label }}</option>
+                          {% endfor %}
+                        </select>
+                        <button class="button ghost small" type="submit">Save</button>
+                      </form>
+                    {% else %}
                       <p class="form-hint">Locked until the next passage.</p>
                     {% endif %}
                   </div>
@@ -167,60 +156,6 @@
           </tbody>
         </table>
       </div>
-      <article class="card label-card">
-        <header class="card-header with-actions">
-          <div>
-            <h3>Myco test labels</h3>
-            <p>Quick label text for active cultures with today&rsquo;s date and initials.</p>
-          </div>
-          <div class="card-actions">
-            <button
-              type="button"
-              class="button ghost copy-myco-select-all"
-              data-table-id="myco-label-table"
-            >
-              Select all
-            </button>
-            <button
-              type="button"
-              class="button secondary copy-myco-table"
-              data-table-id="myco-label-table"
-            >
-              Copy table
-            </button>
-          </div>
-        </header>
-        <div class="card-body table-wrapper">
-          <table class="table label-table" id="myco-label-table">
-            <thead>
-              <tr>
-                <th scope="col" class="select-col" aria-label="Select label"></th>
-                <th scope="col">Label text</th>
-                <th scope="col">Culture</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for culture in active_cultures %}
-                {% set label_text = culture.name ~ ' ' ~ today.strftime('%Y-%m-%d') ~ ' CY' %}
-                <tr>
-                  <td class="select-cell">
-                    <input
-                      type="checkbox"
-                      class="label-select"
-                      name="myco-select-{{ loop.index }}"
-                      aria-label="Select label for {{ culture.name }}"
-                    />
-                  </td>
-                  <td class="wrap">
-                    <pre class="label-snippet">{{ label_text }}</pre>
-                  </td>
-                  <td class="myco-culture">{{ culture.name }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </article>
       <article class="card bulk-card">
         <header class="card-header">
           <h3>Bulk process cultures</h3>
@@ -309,6 +244,60 @@
           <div class="bulk-output" id="bulk-label-output" hidden></div>
         </div>
       </article>
+      <article class="card label-card">
+        <header class="card-header with-actions">
+          <div>
+            <h3>Myco test labels</h3>
+            <p>Quick label text for active cultures with today&rsquo;s date and initials.</p>
+          </div>
+          <div class="card-actions">
+            <button
+              type="button"
+              class="button ghost copy-myco-select-all"
+              data-table-id="myco-label-table"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              class="button secondary copy-myco-table"
+              data-table-id="myco-label-table"
+            >
+              Copy table
+            </button>
+          </div>
+        </header>
+        <div class="card-body table-wrapper">
+          <table class="table label-table" id="myco-label-table">
+            <thead>
+              <tr>
+                <th scope="col" class="select-col" aria-label="Select label"></th>
+                <th scope="col">Label text</th>
+                <th scope="col">Culture</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for culture in active_cultures %}
+                {% set label_text = culture.name ~ ' ' ~ today.strftime('%Y-%m-%d') ~ ' CY' %}
+                <tr>
+                  <td class="select-cell">
+                    <input
+                      type="checkbox"
+                      class="label-select"
+                      name="myco-select-{{ loop.index }}"
+                      aria-label="Select label for {{ culture.name }}"
+                    />
+                  </td>
+                  <td class="wrap">
+                    <pre class="label-snippet">{{ label_text }}</pre>
+                  </td>
+                  <td class="myco-culture">{{ culture.name }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
     {% else %}
       <p class="empty-state">No active cultures yet. Create one below to get started.</p>
     {% endif %}
@@ -365,6 +354,10 @@
             <input type="text" name="initial_cell_concentration" placeholder="e.g. 1.5e6" />
           </label>
           <label>
+            <span>Seeded cells (total)</span>
+            <input type="text" name="initial_seeded_cells" placeholder="e.g. 2e6" />
+          </label>
+          <label>
             <span>Doubling time (hours)</span>
             <input type="text" name="initial_doubling_time" placeholder="e.g. 22" />
           </label>
@@ -373,6 +366,7 @@
             <textarea name="initial_notes" rows="2" placeholder="Optional observations"></textarea>
           </label>
         </div>
+        <p class="form-hint">Provide either an initial concentration or the total cells seeded.</p>
       </fieldset>
       <button class="button primary" type="submit">Create culture</button>
     </form>
