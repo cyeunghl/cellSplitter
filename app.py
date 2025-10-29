@@ -569,6 +569,11 @@ def index():
         if default_slurry_volume_ml is None:
             default_slurry_volume_ml = suggest_slurry_volume(latest_vessel_name)
 
+        last_total_area = None
+        if latest and latest.vessel and latest.vessel.area_cm2:
+            vessels_used = latest.vessels_used or 1
+            last_total_area = latest.vessel.area_cm2 * vessels_used
+
         culture_payload = {
             "id": culture.id,
             "name": culture.name,
@@ -598,6 +603,7 @@ def index():
             "days_since_last_passage": days_since_last_passage,
             "myco_status": culture.current_myco_status_value,
             "myco_status_locked": culture.myco_status_locked,
+            "last_total_area_cm2": last_total_area,
         }
         bulk_culture_payload.append(culture_payload)
 
@@ -840,6 +846,10 @@ def view_culture(culture_id: int):
         if last_passage and last_passage.seeded_cells is not None
         else None
     )
+    last_total_area = None
+    if last_passage and last_passage.vessel and last_passage.vessel.area_cm2:
+        vessels_used = last_passage.vessels_used or 1
+        last_total_area = last_passage.vessel.area_cm2 * vessels_used
     clone_vessel_payload = [
         {"id": vessel.id, "name": vessel.name, "area_cm2": vessel.area_cm2}
         for vessel in vessels
@@ -865,6 +875,7 @@ def view_culture(culture_id: int):
         clone_vessel_payload=clone_vessel_payload,
         clone_default_vessel_id=clone_default_vessel_id,
         clone_default_seeded=clone_default_seeded,
+        last_total_area=last_total_area,
     )
 
 
@@ -964,10 +975,7 @@ def add_passage(culture_id: int):
     myco_status = request.form.get("myco_status")
     valid_statuses = {choice[0] for choice in MYCO_STATUS_CHOICES}
     if not myco_status or myco_status not in valid_statuses:
-        if last_passage and last_passage.myco_status:
-            myco_status = normalize_myco_status(last_passage.myco_status)
-        else:
-            myco_status = MYCO_STATUS_UNTESTED
+        myco_status = MYCO_STATUS_UNTESTED
     else:
         myco_status = normalize_myco_status(myco_status)
 
@@ -1685,10 +1693,7 @@ def create_bulk_passages():
         myco_status_value = entry.get("myco_status")
         valid_statuses = {choice[0] for choice in MYCO_STATUS_CHOICES}
         if myco_status_value not in valid_statuses:
-            if last_passage and last_passage.myco_status:
-                myco_status_value = normalize_myco_status(last_passage.myco_status)
-            else:
-                myco_status_value = MYCO_STATUS_UNTESTED
+            myco_status_value = MYCO_STATUS_UNTESTED
         else:
             myco_status_value = normalize_myco_status(myco_status_value)
 

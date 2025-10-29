@@ -919,6 +919,43 @@ function attachSeedingFormHandler() {
     const operation = form.querySelector('input[name="operation"]:checked')?.value || 'split';
     const remainderModeRadio = form.querySelector('input[name="remainder_mode"]:checked');
     const remainderMode = remainderModeRadio ? remainderModeRadio.value : 'calculate';
+    const vesselSelect = form.querySelector('select[name="vessel_id"]');
+    const vesselsUsedInput = form.querySelector('input[name="vessels_used"]');
+
+    const parseAreaValue = (raw) => {
+      const parsed = parseNumericInput(raw);
+      if (parsed === null || Number.isNaN(parsed) || parsed <= 0) {
+        return null;
+      }
+      return parsed;
+    };
+
+    const lastTotalArea = parseAreaValue(form.dataset.lastTotalArea);
+
+    const getSelectedTotalArea = () => {
+      if (!vesselSelect || !vesselSelect.value) {
+        return null;
+      }
+      const option = vesselSelect.selectedOptions?.[0];
+      if (!option) {
+        return null;
+      }
+      const areaPerVessel = parseAreaValue(option.dataset.area);
+      if (areaPerVessel === null) {
+        return null;
+      }
+      let count = null;
+      if (vesselsUsedInput && vesselsUsedInput.value) {
+        const parsedCount = parseNumericInput(vesselsUsedInput.value);
+        if (parsedCount !== null && !Number.isNaN(parsedCount) && parsedCount > 0) {
+          count = parsedCount;
+        }
+      }
+      if (count === null) {
+        count = 1;
+      }
+      return areaPerVessel * count;
+    };
 
     if (typeof form.reportValidity === 'function' && !form.reportValidity()) {
       submitHasErrors(
@@ -982,7 +1019,6 @@ function attachSeedingFormHandler() {
     };
 
     const buildSplitPayload = () => {
-      const vesselSelect = form.querySelector('select[name="vessel_id"]');
       if (!vesselSelect || !vesselSelect.value) {
         submitHasErrors('Select a vessel before calculating the seeding plan.');
         return null;
@@ -1006,7 +1042,6 @@ function attachSeedingFormHandler() {
         submitHasErrors('Specify days until split greater than zero.');
         return null;
       }
-      const vesselsUsedInput = form.querySelector('input[name="vessels_used"]');
       const vesselsUsedRaw = vesselsUsedInput ? Number.parseInt(vesselsUsedInput.value, 10) : Number.NaN;
       const vesselsUsed = Number.isFinite(vesselsUsedRaw) && vesselsUsedRaw > 0 ? vesselsUsedRaw : 1;
       return {
@@ -1310,7 +1345,20 @@ function attachSeedingFormHandler() {
             : 'Seed & split'
           : 'Split culture';
       if (remainderMode === 'all') {
-        noteText = `${noteText} - seeded everything`;
+        const selectedTotalArea = getSelectedTotalArea();
+        const expanded =
+          lastTotalArea !== null &&
+          selectedTotalArea !== null &&
+          selectedTotalArea > lastTotalArea;
+        if (expanded) {
+          if (operation === MODE_SEED_SPLIT) {
+            noteText = `${noteText}, expanded- seeded everything`;
+          } else {
+            noteText = 'Split culture, expanded- seeded everything';
+          }
+        } else {
+          noteText = `${noteText} - seeded everything`;
+        }
       }
       applyGeneratedNote(notesField, noteText);
     }
@@ -1822,6 +1870,9 @@ function initBulkProcessing() {
       const option = document.createElement('option');
       option.value = String(vessel.id);
       option.textContent = vessel.name;
+      if (vessel.area_cm2 !== undefined && vessel.area_cm2 !== null) {
+        option.dataset.area = String(vessel.area_cm2);
+      }
       if (selectedId && Number.parseInt(selectedId, 10) === vessel.id) {
         option.selected = true;
       }
@@ -1853,6 +1904,53 @@ function initBulkProcessing() {
       return culture.default_slurry_volume_ml;
     }
     return '';
+  };
+
+  const parseAreaValue = (raw) => {
+    const parsed = parseNumericInput(raw);
+    if (parsed === null || Number.isNaN(parsed) || parsed <= 0) {
+      return null;
+    }
+    return parsed;
+  };
+
+  const getRowSelectedTotalArea = (row) => {
+    if (!row) {
+      return null;
+    }
+    const vesselSelect = row.querySelector('.bulk-vessel');
+    if (!vesselSelect || !vesselSelect.value) {
+      return null;
+    }
+    const option = vesselSelect.selectedOptions?.[0];
+    if (!option) {
+      return null;
+    }
+    const areaPerVessel = parseAreaValue(option.dataset.area);
+    if (areaPerVessel === null) {
+      return null;
+    }
+    const vesselsInput = row.querySelector('.bulk-vessels-used');
+    let count = null;
+    if (vesselsInput && vesselsInput.value) {
+      const parsedCount = parseNumericInput(vesselsInput.value);
+      if (parsedCount !== null && !Number.isNaN(parsedCount) && parsedCount > 0) {
+        count = parsedCount;
+      }
+    }
+    if (count === null) {
+      count = 1;
+    }
+    return areaPerVessel * count;
+  };
+
+  const isRowExpanded = (row) => {
+    if (!row) {
+      return false;
+    }
+    const lastArea = parseAreaValue(row.dataset.lastTotalArea);
+    const currentArea = getRowSelectedTotalArea(row);
+    return lastArea !== null && currentArea !== null && currentArea > lastArea;
   };
 
   const setActiveTab = (tab) => {
@@ -2121,6 +2219,9 @@ function initBulkProcessing() {
         row.dataset.defaultConcentration = String(culture.default_cell_concentration);
       } else {
         row.dataset.defaultConcentration = '1000000';
+      }
+      if (culture.last_total_area_cm2 != null) {
+        row.dataset.lastTotalArea = String(culture.last_total_area_cm2);
       }
 
       const plannerCell = row.insertCell();
@@ -2817,7 +2918,11 @@ function initBulkProcessing() {
       const notesField = row.querySelector('.bulk-notes');
       let splitNote = 'Split culture';
       if (remainderMode === 'all') {
-        splitNote = `${splitNote} - seeded everything`;
+        if (isRowExpanded(row)) {
+          splitNote = 'Split culture, expanded- seeded everything';
+        } else {
+          splitNote = `${splitNote} - seeded everything`;
+        }
       }
       applyGeneratedNote(notesField, splitNote);
 
@@ -2977,7 +3082,11 @@ function initBulkProcessing() {
     const notesField = row.querySelector('.bulk-notes');
     let noteText = seedPurpose ? `Seed & split (${seedPurpose})` : 'Seed & split';
     if (remainderMode === 'all') {
-      noteText = `${noteText} - seeded everything`;
+      if (isRowExpanded(row)) {
+        noteText = `${noteText}, expanded- seeded everything`;
+      } else {
+        noteText = `${noteText} - seeded everything`;
+      }
     }
     applyGeneratedNote(notesField, noteText);
 

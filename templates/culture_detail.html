@@ -93,8 +93,6 @@
                 </label>
                 <button class="button ghost small" type="submit">Save</button>
               </form>
-            {% else %}
-              <p class="form-hint">Locked until the next passage.</p>
             {% endif %}
           </div>
         </header>
@@ -361,6 +359,7 @@
           data-measured-volume="{{ '%.6g' % culture.measured_slurry_volume_ml if culture.measured_slurry_volume_ml is not none else '' }}"
           data-default-concentration="{{ '%g' % default_cell_concentration if default_cell_concentration is not none else '1e6' }}"
           data-culture-ended="{{ 'true' if not culture.is_active else 'false' }}"
+          data-last-total-area="{{ '%.6g' % last_total_area if last_total_area is not none else '' }}"
         >
           <input
             type="hidden"
