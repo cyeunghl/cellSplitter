@@ -474,7 +474,12 @@
       <h2>Start a new culture</h2>
       <p>Create a culture and log its initial passage (defaults to P1).</p>
     </div>
-    <form class="form" method="post" action="{{ url_for('create_culture') }}">
+    <form
+      class="form"
+      method="post"
+      action="{{ url_for('create_culture') }}"
+      data-create-culture-form
+    >
       <div class="field-grid">
         <label>
           <span>Culture name</span>
@@ -501,6 +506,37 @@
       <fieldset class="fieldset">
         <legend>Initial passage</legend>
         <div class="field-grid">
+          <label class="wide">
+            <span>Copy initial details (optional)</span>
+            <select
+              name="initial_template"
+              data-prefill-select
+              {% if not culture_prefill_groups %}disabled{% endif %}
+            >
+              <option value="">
+                {% if culture_prefill_groups %}
+                  Select a culture…
+                {% else %}
+                  No saved cultures available
+                {% endif %}
+              </option>
+              {% for group in culture_prefill_groups %}
+                <optgroup label="{{ group.label }}">
+                  {% for entry in group.entries %}
+                    <option value="{{ entry.id }}">
+                      {{ entry.name }}
+                      {% if entry.cell_line %}
+                        · {{ entry.cell_line }}
+                      {% endif %}
+                      {% if entry.latest_passage_number %}
+                        · P{{ entry.latest_passage_number }}
+                      {% endif %}
+                    </option>
+                  {% endfor %}
+                </optgroup>
+              {% endfor %}
+            </select>
+          </label>
           <label>
             <span>Passage number</span>
             <input
@@ -516,12 +552,33 @@
             <input type="text" name="initial_media" placeholder="e.g. DMEM + 10% FBS" />
           </label>
           <label>
+            <span>Vessel (optional)</span>
+            <select name="initial_vessel_id">
+              <option value="">Select a vessel…</option>
+              {% for vessel in vessels %}
+                <option value="{{ vessel.id }}">
+                  {{ vessel.name }} ({{ '%g' % vessel.area_cm2 }} cm²)
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
             <span>Cell concentration (cells/mL)</span>
             <input type="text" name="initial_cell_concentration" placeholder="e.g. 1.5e6" />
           </label>
           <label>
             <span>Seeded cells (total)</span>
             <input type="text" name="initial_seeded_cells" placeholder="e.g. 2e6" />
+          </label>
+          <label>
+            <span>Viability (%)</span>
+            <input
+              type="number"
+              name="initial_viability_percent"
+              min="0"
+              max="100"
+              step="1"
+            />
           </label>
           <label>
             <span>Doubling time (hours)</span>
@@ -668,6 +725,9 @@
 
 {% block scripts %}
   {{ super() }}
+  <script type="application/json" id="create-culture-prefill-data">
+    {{ culture_prefill_json | safe }}
+  </script>
   {% if active_cultures %}
     <script type="application/json" id="bulk-culture-data">
       {{ bulk_cultures_json | safe }}

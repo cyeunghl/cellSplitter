@@ -579,6 +579,42 @@ def index():
             break
 
     bulk_culture_payload: list[dict] = []
+    prefill_active: list[dict] = []
+    prefill_ended: list[dict] = []
+
+    def build_prefill_entry(culture: Culture) -> dict:
+        latest = culture.latest_passage
+        default_cell_concentration = culture.measured_cell_concentration
+        if default_cell_concentration is None and latest and latest.cell_concentration:
+            default_cell_concentration = latest.cell_concentration
+        measured_viability = culture.measured_viability_percent
+        if (
+            measured_viability is None
+            and latest
+            and latest.measured_viability_percent is not None
+        ):
+            measured_viability = latest.measured_viability_percent
+        default_vessel_id = None
+        if latest and latest.vessel_id:
+            default_vessel_id = latest.vessel_id
+        latest_seeded_value = None
+        latest_seeded_display = None
+        if latest and latest.seeded_cells is not None:
+            latest_seeded_value = latest.seeded_cells
+            latest_seeded_display = format_cells(latest.seeded_cells)
+        return {
+            "id": culture.id,
+            "name": culture.name,
+            "cell_line": culture.cell_line.name,
+            "status": "active" if culture.ended_on is None else "ended",
+            "latest_passage_number": latest.passage_number if latest else None,
+            "default_cell_concentration": default_cell_concentration,
+            "measured_viability_percent": measured_viability,
+            "latest_seeded_cells": latest_seeded_value,
+            "latest_seeded_display": latest_seeded_display,
+            "default_vessel_id": default_vessel_id,
+        }
+
     for culture in active_cultures:
         latest = culture.latest_passage
         last_activity_date = culture.start_date
@@ -668,6 +704,7 @@ def index():
             "last_total_area_cm2": last_total_area,
         }
         bulk_culture_payload.append(culture_payload)
+        prefill_active.append(build_prefill_entry(culture))
 
     bulk_culture_map = {entry["id"]: entry for entry in bulk_culture_payload}
 
@@ -684,6 +721,15 @@ def index():
     for culture in ended_cultures:
         culture.current_myco_status_value = culture.current_myco_status
         culture.current_myco_status_label = display_myco_status(culture.current_myco_status_value)
+        prefill_ended.append(build_prefill_entry(culture))
+
+    prefill_groups: list[dict] = []
+    if prefill_active:
+        prefill_groups.append({"label": "Active cultures", "entries": prefill_active})
+    if prefill_ended:
+        prefill_groups.append({"label": "Ended cultures", "entries": prefill_ended})
+
+    prefill_payload = prefill_active + prefill_ended
 
     return render_template(
         "index.html",
@@ -700,6 +746,8 @@ def index():
         stale_cutoff_days=stale_cutoff_days,
         label_library=label_library,
         myco_status_choices=MYCO_STATUS_CHOICES,
+        culture_prefill_groups=prefill_groups,
+        culture_prefill_json=json.dumps(prefill_payload),
     )
 
 
@@ -802,6 +850,19 @@ def create_culture():
     start_date = parse_date(request.form.get("start_date"))
     culture_notes = request.form.get("culture_notes")
 
+    initial_vessel_id_raw = request.form.get("initial_vessel_id")
+    initial_vessel: Optional[Vessel] = None
+    if initial_vessel_id_raw not in (None, ""):
+        try:
+            initial_vessel_id = int(initial_vessel_id_raw)
+        except (TypeError, ValueError):
+            flash("Select a valid vessel for the initial passage.", "error")
+            return redirect(url_for("index"))
+        initial_vessel = Vessel.query.get(initial_vessel_id)
+        if initial_vessel is None:
+            flash("Selected vessel could not be found.", "error")
+            return redirect(url_for("index"))
+
     passage_number_raw = request.form.get("initial_passage_number")
     initial_passage_number = 1
     if passage_number_raw is not None and passage_number_raw != "":
@@ -828,6 +889,21 @@ def create_culture():
     initial_doubling_time = parse_numeric(request.form.get("initial_doubling_time"))
     initial_notes = request.form.get("initial_notes")
 
+    initial_viability_raw = request.form.get("initial_viability_percent")
+    initial_viability: Optional[int] = None
+    if initial_viability_raw not in (None, ""):
+        viability_clean = initial_viability_raw.strip()
+        if viability_clean:
+            viability_numeric = parse_numeric(viability_clean)
+            if viability_numeric is None:
+                flash("Enter viability as a percentage between 0 and 100.", "error")
+                return redirect(url_for("index"))
+            viability_int = int(round(viability_numeric))
+            if viability_int < 0 or viability_int > 100:
+                flash("Enter viability as a percentage between 0 and 100.", "error")
+                return redirect(url_for("index"))
+            initial_viability = viability_int
+
     passage = Passage(
         culture=culture,
         passage_number=initial_passage_number,
@@ -837,10 +913,18 @@ def create_culture():
         doubling_time_hours=initial_doubling_time,
         notes=initial_notes,
         seeded_cells=initial_seeded_cells,
+        vessel=initial_vessel,
+        measured_viability_percent=initial_viability,
         myco_status=MYCO_STATUS_UNTESTED,
         myco_status_locked=False,
     )
     db.session.add(passage)
+
+    if initial_cell_concentration is not None:
+        culture.measured_cell_concentration = initial_cell_concentration
+    if initial_viability is not None:
+        culture.measured_viability_percent = initial_viability
+
     db.session.commit()
 
     flash(
