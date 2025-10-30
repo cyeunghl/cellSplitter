@@ -139,8 +139,26 @@ function computeSeededCells({
 
   if (remainderMode === 'manual') {
     const numeric = parseNumericInput(manualValue);
-    if (numeric === null || !Number.isFinite(numeric)) {
-      return { value: null, error: 'Enter cells seeded when using free form.' };
+    if (numeric === null || !Number.isFinite(numeric) || numeric <= 0) {
+      return { value: null, error: 'Enter cells seeded when using Seed a subset.' };
+    }
+    if (Number.isFinite(measuredTotal)) {
+      let available = measuredTotal;
+      if (seedData) {
+        const seedPortion =
+          pickNumericValue([
+            seedData.required_cells_total,
+            seedData.required_cells,
+            seedData.cells_needed,
+          ]) || 0;
+        available -= seedPortion;
+      }
+      if (available < 0) {
+        available = 0;
+      }
+      if (numeric > available) {
+        return { value: null, error: 'Seeded cells cannot exceed the measured yield.' };
+      }
     }
     return { value: numeric, error: null };
   }
@@ -167,26 +185,11 @@ function computeSeededCells({
 }
 
 function resolveSeedingConcentration({
-  measuredYieldOverride,
   measuredTotal,
   measuredConcentration,
   measuredVolume,
   defaultConcentration,
 }) {
-  let overrideTotal = null;
-  if (
-    measuredYieldOverride !== null &&
-    measuredYieldOverride !== undefined &&
-    measuredYieldOverride !== ''
-  ) {
-    if (!Number.isFinite(measuredYieldOverride) || measuredYieldOverride <= 0) {
-      return {
-        error: 'Enter a valid measured yield (e.g. 1.5e7 cells).',
-      };
-    }
-    overrideTotal = measuredYieldOverride;
-  }
-
   const parsedMeasuredTotal = Number.isFinite(measuredTotal) && measuredTotal > 0 ? measuredTotal : null;
   const parsedMeasuredConcentration =
     Number.isFinite(measuredConcentration) && measuredConcentration > 0
@@ -194,21 +197,11 @@ function resolveSeedingConcentration({
       : null;
   const parsedMeasuredVolume =
     Number.isFinite(measuredVolume) && measuredVolume > 0 ? measuredVolume : null;
-  let parsedDefaultConcentration = null;
-  if (Number.isFinite(defaultConcentration) && defaultConcentration > 0) {
-    parsedDefaultConcentration = defaultConcentration;
-  }
-
-  if (overrideTotal !== null && !parsedMeasuredVolume) {
-    return {
-      error: 'Record the harvest volume before using a measured yield override.',
-    };
-  }
+  const parsedDefaultConcentration =
+    Number.isFinite(defaultConcentration) && defaultConcentration > 0 ? defaultConcentration : null;
 
   let concentration = null;
-  if (overrideTotal !== null && parsedMeasuredVolume) {
-    concentration = overrideTotal / parsedMeasuredVolume;
-  } else if (parsedMeasuredConcentration) {
+  if (parsedMeasuredConcentration) {
     concentration = parsedMeasuredConcentration;
   } else if (parsedMeasuredVolume && parsedMeasuredTotal) {
     concentration = parsedMeasuredTotal / parsedMeasuredVolume;
@@ -222,11 +215,14 @@ function resolveSeedingConcentration({
     };
   }
 
-  const totalForRemainder = overrideTotal ?? parsedMeasuredTotal ?? null;
+  let totalForRemainder = parsedMeasuredTotal;
+  if (totalForRemainder === null && parsedMeasuredConcentration && parsedMeasuredVolume) {
+    totalForRemainder = parsedMeasuredConcentration * parsedMeasuredVolume;
+  }
 
   return {
     concentration,
-    measuredTotal: totalForRemainder,
+    measuredTotal: Number.isFinite(totalForRemainder) ? totalForRemainder : null,
     error: null,
   };
 }
@@ -434,27 +430,51 @@ function attachMediaCheckboxHandler() {
   });
 }
 
-async function copyLabelFromPassageForm() {
-  const passageForm = document.querySelector('[data-passage-form]');
-  if (!passageForm) {
+async function copyLabelFromSeedingForm() {
+  const form = document.querySelector('#seeding-form');
+  if (!form) {
     return;
   }
 
-  const cultureName = passageForm.dataset.cultureName || '';
-  const nextPassage = passageForm.dataset.nextPassage || '';
-  const dateInput = passageForm.querySelector('input[name="date"]');
+  const cultureName = form.dataset.cultureName || '';
+  const nextPassage = form.dataset.nextPassage || '';
+  const dateInput = form.querySelector('input[name="date"]');
   const dateValue = dateInput && dateInput.value ? dateInput.value : new Date().toISOString().slice(0, 10);
-  const seededInput = passageForm.querySelector('#passage-seeded-cells');
-  const seededRaw = seededInput ? seededInput.value : '';
 
-  let seededDisplay = '—';
-  if (seededRaw) {
-    const seededNumber = Number(seededRaw);
-    if (Number.isFinite(seededNumber)) {
-      seededDisplay = formatCellsForLabel(seededNumber);
-    } else {
-      seededDisplay = seededRaw;
+  let seededDisplay = form.dataset.calculatedSeededDisplay || '—';
+  let seededNumeric = null;
+
+  if (form.dataset.calculatedSeeded) {
+    const parsed = parseNumericInput(form.dataset.calculatedSeeded);
+    if (Number.isFinite(parsed)) {
+      seededNumeric = parsed;
     }
+  }
+
+  if (!Number.isFinite(seededNumeric)) {
+    const hiddenField = form.querySelector('[data-seeding-seeded-cells]');
+    if (hiddenField && hiddenField.value) {
+      const parsedHidden = parseNumericInput(hiddenField.value);
+      if (Number.isFinite(parsedHidden)) {
+        seededNumeric = parsedHidden;
+      }
+    }
+  }
+
+  if (!Number.isFinite(seededNumeric)) {
+    const manualField = form.querySelector('input[name="remainder_manual_seeded"]');
+    if (manualField && !manualField.disabled && manualField.value) {
+      const manualParsed = parseNumericInput(manualField.value);
+      if (Number.isFinite(manualParsed)) {
+        seededNumeric = manualParsed;
+      } else {
+        seededDisplay = manualField.value.trim();
+      }
+    }
+  }
+
+  if (Number.isFinite(seededNumeric)) {
+    seededDisplay = formatCellsForLabel(seededNumeric);
   }
 
   const parts = [];
@@ -471,165 +491,17 @@ async function copyLabelFromPassageForm() {
   await copyPlainText(parts.join('\n'));
 }
 
-function attachPassageLabelCopyHandler() {
-  const button = document.querySelector('[data-copy-passage-label]');
-  if (!button) {
-    return;
-  }
-  button.addEventListener('click', async () => {
-    await copyLabelFromPassageForm();
-  });
-}
-
-function fillPassageFormFromSeeding(data, { submit = false, seedData = null } = {}) {
-  const passageForm = document.querySelector('[data-passage-form]');
-  if (!passageForm || !data) {
+function attachSeedingLabelCopyHandler() {
+  const buttons = document.querySelectorAll('[data-copy-seeding-label]');
+  if (!buttons.length) {
     return;
   }
 
-  const seedingForm = document.querySelector('#seeding-form');
-  const remainderMode = seedingForm?.dataset.remainderMode || 'calculate';
-  const manualField = seedingForm?.querySelector('input[name="remainder_manual_seeded"]');
-  const manualValue = manualField ? manualField.value : '';
-  const measuredTotal = seedingForm?.dataset.measuredTotal
-    ? parseNumericInput(seedingForm.dataset.measuredTotal)
-    : null;
-  const seededResult = computeSeededCells({
-    remainderMode,
-    manualValue,
-    measuredTotal,
-    splitData: data,
-    seedData,
-  });
-
-  const hadError = Boolean(seededResult.error && remainderMode !== 'calculate');
-  if (hadError) {
-    window.alert(seededResult.error);
-  }
-
-  const vesselInput = passageForm.querySelector('#passage-vessel-id');
-  if (vesselInput) {
-    if (data.vessel_id !== undefined) {
-      vesselInput.value = data.vessel_id ?? '';
-    } else {
-      vesselInput.value = '';
-    }
-  }
-
-  const vesselsUsedInput = passageForm.querySelector('#passage-vessels-used');
-  if (vesselsUsedInput) {
-    if (data.vessels_used !== undefined) {
-      vesselsUsedInput.value = data.vessels_used ?? '';
-    } else {
-      vesselsUsedInput.value = '';
-    }
-  }
-
-  const seededCellsInput = passageForm.querySelector('#passage-seeded-cells');
-  if (seededCellsInput) {
-    let seededValue = seededResult.value;
-    if (
-      (seededValue === null || seededValue === undefined || Number.isNaN(seededValue)) &&
-      !hadError
-    ) {
-      if (data.mode === MODE_DILUTION) {
-        seededValue = data.cells_needed ?? '';
-      } else {
-        seededValue = data.required_cells_total ?? '';
-      }
-    }
-    if (seededValue !== null && seededValue !== undefined && seededValue !== '') {
-      seededCellsInput.value = seededValue;
-    } else {
-      seededCellsInput.value = '';
-    }
-  }
-
-  const cellConcentrationHidden = passageForm.querySelector('#passage-cell-concentration');
-  if (cellConcentrationHidden) {
-    let concentrationValue = data.cell_concentration;
-    if (data.mode === MODE_DILUTION && data.final_concentration !== undefined) {
-      concentrationValue = data.final_concentration;
-    }
-    if (
-      (typeof concentrationValue === 'number' && Number.isFinite(concentrationValue)) ||
-      (typeof concentrationValue === 'string' && concentrationValue.trim() !== '')
-    ) {
-      cellConcentrationHidden.value = concentrationValue;
-    }
-  }
-
-  const notesField = passageForm.querySelector('#notes-field');
-  if (notesField) {
-    const operation = seedingForm?.dataset.operation || (seedData ? MODE_SEED_SPLIT : 'split');
-    let noteText = '';
-    if (operation === MODE_SEED_SPLIT) {
-      const purpose = seedingForm?.querySelector('input[name="seed_purpose"]')?.value?.trim();
-      noteText = purpose ? `Seed & split (${purpose})` : 'Seed & split';
-    } else {
-      noteText = 'Split culture';
-    }
-    applyGeneratedNote(notesField, noteText);
-  }
-
-  const mediaCheckbox = passageForm.querySelector('#use-previous-media');
-  if (mediaCheckbox && !mediaCheckbox.disabled && !mediaCheckbox.checked && mediaCheckbox.dataset.media) {
-    mediaCheckbox.checked = true;
-    mediaCheckbox.dispatchEvent(new Event('change'));
-  }
-
-  if (submit) {
-    passageForm.submit();
-  } else {
-    passageForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    if (notesField) {
-      notesField.focus();
-    }
-  }
-}
-
-function prepareSeedingResultActions(container, data) {
-  const passageForm = document.querySelector('[data-passage-form]');
-  const actionRow = document.createElement('div');
-  actionRow.className = 'form-actions';
-
-  const confluencyData = data && data.mode === MODE_SEED_SPLIT ? data.split : data;
-  const seedData = data && data.mode === MODE_SEED_SPLIT ? data.seed : null;
-
-  if (passageForm && confluencyData && confluencyData.mode === MODE_CONFLUENCY) {
-    const fillButton = document.createElement('button');
-    fillButton.type = 'button';
-    fillButton.className = 'button secondary';
-    fillButton.textContent = 'Fill passage form';
-    fillButton.addEventListener('click', () => {
-      fillPassageFormFromSeeding(confluencyData, { submit: false, seedData });
+  buttons.forEach((button) => {
+    button.addEventListener('click', async () => {
+      await copyLabelFromSeedingForm();
     });
-
-    const commitButton = document.createElement('button');
-    commitButton.type = 'button';
-    commitButton.className = 'button primary';
-    commitButton.textContent = 'Save as new passage';
-    commitButton.addEventListener('click', () => {
-      const confirmed = window.confirm('Save this seeding plan as a new passage?');
-      if (!confirmed) {
-        return;
-      }
-      fillPassageFormFromSeeding(confluencyData, { submit: true, seedData });
-    });
-
-    actionRow.append(fillButton, commitButton);
-  }
-
-  const labelButton = document.createElement('button');
-  labelButton.type = 'button';
-  labelButton.className = 'button ghost';
-  labelButton.textContent = 'Copy label text';
-  labelButton.addEventListener('click', () => {
-    copyLabelToClipboard(data);
   });
-  actionRow.append(labelButton);
-
-  container.appendChild(actionRow);
 }
 
 async function copyPlainText(text) {
@@ -793,6 +665,146 @@ function showEndReasonDialog() {
   });
 }
 
+function showCloneCultureDialog({
+  cultureName,
+  defaultName,
+  vessels,
+  defaultVesselId,
+  defaultSeeded,
+}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      if (overlay.parentElement) {
+        overlay.parentElement.removeChild(overlay);
+      }
+      document.removeEventListener('keydown', onKeyDown);
+    };
+    const finish = (value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'dialog';
+
+    const heading = document.createElement('h3');
+    heading.textContent = `Clone ${cultureName || 'culture'}`;
+    dialog.appendChild(heading);
+
+    const note = document.createElement('p');
+    note.className = 'dialog-note';
+    note.textContent = 'Create a new culture using the current passage details.';
+    dialog.appendChild(note);
+
+    const form = document.createElement('form');
+    form.className = 'form dialog-form';
+
+    const nameLabel = document.createElement('label');
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = 'Culture name';
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.required = true;
+    nameInput.value = defaultName || '';
+    nameLabel.append(nameSpan, nameInput);
+
+    const vesselLabel = document.createElement('label');
+    const vesselSpan = document.createElement('span');
+    vesselSpan.textContent = 'Vessel';
+    const vesselSelect = document.createElement('select');
+    vesselSelect.required = true;
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select a vessel…';
+    placeholder.disabled = true;
+    if (!defaultVesselId) {
+      placeholder.selected = true;
+    }
+    vesselSelect.appendChild(placeholder);
+    (vessels || []).forEach((record) => {
+      if (!record || record.id == null) {
+        return;
+      }
+      const option = document.createElement('option');
+      option.value = String(record.id);
+      option.textContent = record.area_cm2
+        ? `${record.name} (${record.area_cm2} cm²)`
+        : record.name;
+      if (defaultVesselId && String(record.id) === String(defaultVesselId)) {
+        option.selected = true;
+      }
+      vesselSelect.appendChild(option);
+    });
+    vesselLabel.append(vesselSpan, vesselSelect);
+
+    const seededLabel = document.createElement('label');
+    const seededSpan = document.createElement('span');
+    seededSpan.textContent = 'Cells seeded (total)';
+    const seededInput = document.createElement('input');
+    seededInput.type = 'text';
+    seededInput.placeholder = 'e.g. 2e6';
+    seededInput.required = true;
+    if (defaultSeeded) {
+      seededInput.value = defaultSeeded;
+    }
+    seededLabel.append(seededSpan, seededInput);
+
+    const hint = document.createElement('p');
+    hint.className = 'form-hint';
+    hint.textContent = 'Use K/M/B shorthand if helpful.';
+
+    const footer = document.createElement('div');
+    footer.className = 'dialog-footer';
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'button ghost';
+    cancelButton.textContent = 'Cancel';
+    cancelButton.addEventListener('click', () => finish(null));
+    const submitButton = document.createElement('button');
+    submitButton.type = 'submit';
+    submitButton.className = 'button primary';
+    submitButton.textContent = 'Clone culture';
+    footer.append(cancelButton, submitButton);
+
+    form.append(nameLabel, vesselLabel, seededLabel, hint, footer);
+    dialog.appendChild(form);
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        finish(null);
+      }
+    };
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (typeof form.reportValidity === 'function' && !form.reportValidity()) {
+        return;
+      }
+      const nameValue = nameInput.value.trim();
+      const vesselValue = vesselSelect.value;
+      const seededValue = seededInput.value.trim();
+      if (!nameValue || !vesselValue || !seededValue) {
+        return;
+      }
+      finish({ name: nameValue, vessel_id: vesselValue, seeded_cells: seededValue });
+    });
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKeyDown);
+    nameInput.focus();
+    nameInput.select();
+  });
+}
+
 function attachEndCultureHandlers() {
   const forms = document.querySelectorAll('form[data-end-culture-form]');
   if (!forms.length) {
@@ -824,6 +836,54 @@ function attachEndCultureHandlers() {
   });
 }
 
+function attachCloneCultureHandlers() {
+  const buttons = document.querySelectorAll('[data-clone-culture]');
+  if (!buttons.length) {
+    return;
+  }
+
+  const vesselData = parseJSONScript('clone-vessel-data') || [];
+
+  buttons.forEach((button) => {
+    button.addEventListener('click', async () => {
+      const url = button.dataset.cloneUrl;
+      if (!url) {
+        return;
+      }
+      const result = await showCloneCultureDialog({
+        cultureName: button.dataset.cultureName || '',
+        defaultName: button.dataset.defaultName || '',
+        vessels: vesselData,
+        defaultVesselId: button.dataset.defaultVessel || '',
+        defaultSeeded: button.dataset.defaultSeeded || '',
+      });
+      if (!result) {
+        return;
+      }
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(result),
+        });
+        const data = await parseJsonResponse(response);
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Failed to clone culture.');
+        }
+        if (data.redirect_url) {
+          window.location.href = data.redirect_url;
+        } else if (data.culture_id) {
+          window.location.href = `/culture/${data.culture_id}`;
+        } else {
+          window.location.reload();
+        }
+      } catch (error) {
+        window.alert(error.message || 'Failed to clone culture.');
+      }
+    });
+  });
+}
+
 async function parseJsonResponse(response) {
   const text = await response.text();
   if (!text) {
@@ -849,24 +909,61 @@ function attachSeedingFormHandler() {
     if (!resultContainer) {
       return;
     }
-    if (typeof form.reportValidity === 'function' && !form.reportValidity()) {
-      resultContainer.innerHTML =
-        '<p class="error">Please resolve the highlighted fields before calculating.</p>';
-      return;
-    }
-    resultContainer.textContent = 'Calculating…';
 
-    const formData = new FormData(form);
-    const operation = form.querySelector('input[name="operation"]:checked')?.value || 'split';
-    const measuredYieldRaw = (formData.get('measured_yield_override') || '').trim();
-    let measuredYieldOverride = null;
-    if (measuredYieldRaw) {
-      measuredYieldOverride = parseNumericInput(measuredYieldRaw);
-      if (measuredYieldOverride === null || !Number.isFinite(measuredYieldOverride) || measuredYieldOverride <= 0) {
-        resultContainer.innerHTML =
-          '<p class="error">Enter a valid measured yield (e.g. 1.5e7 cells) before calculating.</p>';
-        return;
+    const submitHasErrors = (message) => {
+      if (message) {
+        resultContainer.innerHTML = `<p class="error">${message}</p>`;
       }
+    };
+
+    const operation = form.querySelector('input[name="operation"]:checked')?.value || 'split';
+    const remainderModeRadio = form.querySelector('input[name="remainder_mode"]:checked');
+    const remainderMode = remainderModeRadio ? remainderModeRadio.value : 'calculate';
+    const vesselSelect = form.querySelector('select[name="vessel_id"]');
+    const vesselsUsedInput = form.querySelector('input[name="vessels_used"]');
+
+    const parseAreaValue = (raw) => {
+      const parsed = parseNumericInput(raw);
+      if (parsed === null || Number.isNaN(parsed) || parsed <= 0) {
+        return null;
+      }
+      return parsed;
+    };
+
+    const lastTotalArea = parseAreaValue(form.dataset.lastTotalArea);
+
+    const getSelectedTotalArea = () => {
+      if (!vesselSelect || !vesselSelect.value) {
+        return null;
+      }
+      const option = vesselSelect.selectedOptions?.[0];
+      if (!option) {
+        return null;
+      }
+      const areaPerVessel = parseAreaValue(option.dataset.area);
+      if (areaPerVessel === null) {
+        return null;
+      }
+      let count = null;
+      if (vesselsUsedInput && vesselsUsedInput.value) {
+        const parsedCount = parseNumericInput(vesselsUsedInput.value);
+        if (parsedCount !== null && !Number.isNaN(parsedCount) && parsedCount > 0) {
+          count = parsedCount;
+        }
+      }
+      if (count === null) {
+        count = 1;
+      }
+      return areaPerVessel * count;
+    };
+
+    if (typeof form.reportValidity === 'function' && !form.reportValidity()) {
+      submitHasErrors(
+        remainderMode === 'calculate'
+          ? 'Please resolve the highlighted fields before calculating.'
+          : 'Please resolve the highlighted fields before saving.'
+      );
+      return;
     }
 
     const measuredTotalDataset = form.dataset.measuredTotal
@@ -886,7 +983,6 @@ function attachSeedingFormHandler() {
     }
 
     const resolved = resolveSeedingConcentration({
-      measuredYieldOverride,
       measuredTotal: measuredTotalDataset,
       measuredConcentration: measuredConcentrationDataset,
       measuredVolume: measuredVolumeDataset,
@@ -894,13 +990,28 @@ function attachSeedingFormHandler() {
     });
 
     if (resolved.error) {
-      resultContainer.innerHTML = `<p class="error">${resolved.error}</p>`;
+      submitHasErrors(resolved.error);
       return;
     }
 
     if (Number.isFinite(resolved.measuredTotal)) {
       form.dataset.measuredTotal = String(resolved.measuredTotal);
+    } else {
+      delete form.dataset.measuredTotal;
     }
+
+    const updateCalculatedSeeded = (numericValue, displayValue) => {
+      if (Number.isFinite(numericValue)) {
+        form.dataset.calculatedSeeded = String(numericValue);
+        form.dataset.calculatedSeededDisplay = displayValue || formatCells(numericValue);
+      } else if (displayValue) {
+        delete form.dataset.calculatedSeeded;
+        form.dataset.calculatedSeededDisplay = displayValue;
+      } else {
+        delete form.dataset.calculatedSeeded;
+        delete form.dataset.calculatedSeededDisplay;
+      }
+    };
 
     const basePayload = {
       culture_id: form.dataset.cultureId,
@@ -908,215 +1019,353 @@ function attachSeedingFormHandler() {
     };
 
     const buildSplitPayload = () => {
-      const vesselIdValue = formData.get('vessel_id');
-      if (!vesselIdValue) {
-        resultContainer.innerHTML =
-          '<p class="error">Select a vessel before calculating the seeding plan.</p>';
+      if (!vesselSelect || !vesselSelect.value) {
+        submitHasErrors('Select a vessel before calculating the seeding plan.');
         return null;
       }
-      const vesselId = Number.parseInt(vesselIdValue, 10);
+      const vesselId = Number.parseInt(vesselSelect.value, 10);
       if (Number.isNaN(vesselId)) {
-        resultContainer.innerHTML =
-          '<p class="error">Select a valid vessel before calculating the seeding plan.</p>';
+        submitHasErrors('Select a valid vessel before calculating the seeding plan.');
         return null;
       }
-      const targetConfluency = Number.parseFloat(formData.get('target_confluency'));
+      const targetConfluencyInput = form.querySelector('input[name="target_confluency"]');
+      const targetConfluency = targetConfluencyInput
+        ? Number.parseFloat(targetConfluencyInput.value)
+        : Number.NaN;
       if (!Number.isFinite(targetConfluency) || targetConfluency <= 0) {
-        resultContainer.innerHTML =
-          '<p class="error">Enter a valid target confluency above 0%.</p>';
+        submitHasErrors('Enter a valid target confluency above 0%.');
         return null;
       }
-      const targetDays = Number.parseFloat(formData.get('target_days') || '0');
+      const targetDaysInput = form.querySelector('input[name="target_days"]');
+      const targetDays = targetDaysInput ? Number.parseFloat(targetDaysInput.value) : Number.NaN;
       if (!Number.isFinite(targetDays) || targetDays <= 0) {
-        resultContainer.innerHTML =
-          '<p class="error">Specify days until split greater than zero.</p>';
+        submitHasErrors('Specify days until split greater than zero.');
         return null;
       }
-      const totalHours = targetDays * 24;
-      const vesselsUsedRaw = Number.parseInt(formData.get('vessels_used'), 10);
+      const vesselsUsedRaw = vesselsUsedInput ? Number.parseInt(vesselsUsedInput.value, 10) : Number.NaN;
       const vesselsUsed = Number.isFinite(vesselsUsedRaw) && vesselsUsedRaw > 0 ? vesselsUsedRaw : 1;
       return {
         ...basePayload,
         mode: MODE_CONFLUENCY,
         vessel_id: vesselId,
         target_confluency: targetConfluency,
-        target_hours: totalHours,
-        doubling_time_override: formData.get('doubling_time_override'),
+        target_hours: targetDays * 24,
+        doubling_time_override: form.querySelector('input[name="doubling_time_override"]')?.value || '',
         vessels_used: vesselsUsed,
       };
     };
 
-    try {
-      if (operation === 'split') {
+    if (remainderMode === 'calculate') {
+      resultContainer.textContent = 'Calculating…';
+      try {
+        if (operation === MODE_SEED_SPLIT) {
+          const seedMode = form.dataset.seedMode || 'cells';
+          const seedPayload = {
+            ...basePayload,
+            mode: MODE_DILUTION,
+            dilution_input_mode: seedMode,
+          };
+
+          if (seedMode === 'cells') {
+            const cellsField = form.querySelector(
+              '[data-seed-dilution-section="cells"] input[name="seed_cells_to_seed"]'
+            );
+            const perVolumeField = form.querySelector(
+              '[data-seed-dilution-section="cells"] input[name="seed_volume_per_seed_ml"]'
+            );
+            const totalVolumeField = form.querySelector(
+              '[data-seed-dilution-section="cells"] input[name="seed_total_volume_ml"]'
+            );
+            const cellsValue = cellsField ? cellsField.value.trim() : '';
+            const perVolumeValue = perVolumeField ? perVolumeField.value.trim() : '';
+            const totalVolumeValue = totalVolumeField ? totalVolumeField.value.trim() : '';
+            if (!cellsValue || !perVolumeValue || !totalVolumeValue) {
+              submitHasErrors('Provide cells, volume, and total volume for the seeding portion.');
+              return;
+            }
+            seedPayload.cells_to_seed = cellsValue;
+            seedPayload.volume_per_seed_ml = perVolumeValue;
+            seedPayload.total_volume_ml = totalVolumeValue;
+          } else {
+            const finalConcField = form.querySelector(
+              '[data-seed-dilution-section="concentration"] input[name="seed_final_concentration"]'
+            );
+            const totalVolumeField = form.querySelector(
+              '[data-seed-dilution-section="concentration"] input[name="seed_total_volume_ml"]'
+            );
+            const finalConcValue = finalConcField ? finalConcField.value.trim() : '';
+            const totalVolumeValue = totalVolumeField ? totalVolumeField.value.trim() : '';
+            if (!finalConcValue || !totalVolumeValue) {
+              submitHasErrors('Provide the final concentration and total volume for the seeding portion.');
+              return;
+            }
+            seedPayload.final_concentration = finalConcValue;
+            seedPayload.total_volume_ml = totalVolumeValue;
+          }
+
+          const splitPayload = buildSplitPayload();
+          if (!splitPayload) {
+            return;
+          }
+
+          const [seedData, splitData] = await Promise.all([
+            requestSeedingCalculation(seedPayload),
+            requestSeedingCalculation(splitPayload),
+          ]);
+
+          const seedPurposeValue = form.querySelector('input[name="seed_purpose"]')?.value?.trim() || '';
+          if (seedPurposeValue) {
+            const purposeNote = `Seed purpose: ${seedPurposeValue}`;
+            if (seedData.note_suggestion) {
+              seedData.note_suggestion = `${seedData.note_suggestion} ${purposeNote}`;
+            } else {
+              seedData.note_suggestion = purposeNote;
+            }
+          }
+
+          const combined = {
+            mode: MODE_SEED_SPLIT,
+            seed: seedData,
+            split: splitData,
+            seedPurpose: seedPurposeValue,
+          };
+
+          resultContainer.innerHTML = buildSeedingSummary(combined);
+
+          const manualField = form.querySelector('input[name="remainder_manual_seeded"]');
+          const manualValue = manualField ? manualField.value : '';
+          const seededResult = computeSeededCells({
+            remainderMode,
+            manualValue,
+            measuredTotal: resolved.measuredTotal,
+            splitData: splitData,
+            seedData,
+          });
+          const seededValue = Number.isFinite(seededResult.value)
+            ? seededResult.value
+            : parseNumericInput(splitData.required_cells_total);
+          const seededDisplay =
+            splitData.required_cells_total_formatted ||
+            splitData.required_cells_formatted ||
+            splitData.required_cells_total ||
+            '';
+          updateCalculatedSeeded(seededValue, seededDisplay);
+          form.dataset.lastCalculation = JSON.stringify(combined);
+          return;
+        }
+
         const splitPayload = buildSplitPayload();
         if (!splitPayload) {
           return;
         }
+
         const splitData = await requestSeedingCalculation(splitPayload);
         resultContainer.innerHTML = buildSeedingSummary(splitData);
-        prepareSeedingResultActions(resultContainer, splitData);
-        return;
+
+        const manualField = form.querySelector('input[name="remainder_manual_seeded"]');
+        const manualValue = manualField ? manualField.value : '';
+        const seededResult = computeSeededCells({
+          remainderMode,
+          manualValue,
+          measuredTotal: resolved.measuredTotal,
+          splitData,
+        });
+        const seededValue = Number.isFinite(seededResult.value)
+          ? seededResult.value
+          : parseNumericInput(splitData.required_cells_total);
+        const seededDisplay =
+          splitData.required_cells_total_formatted ||
+          splitData.required_cells_formatted ||
+          splitData.required_cells_total ||
+          '';
+        updateCalculatedSeeded(seededValue, seededDisplay);
+        form.dataset.lastCalculation = JSON.stringify(splitData);
+      } catch (error) {
+        submitHasErrors(error.message);
       }
-
-      const seedMode =
-        form.querySelector('input[name="seed_dilution_mode"]:checked')?.value || 'cells';
-      const seedPayload = {
-        ...basePayload,
-        mode: MODE_DILUTION,
-        dilution_input_mode: seedMode,
-      };
-
-      if (seedMode === 'cells') {
-        const seedCellsInput = form.querySelector(
-          '[data-seed-dilution-section="cells"] input[name="seed_cells_to_seed"]',
-        );
-        const seedVolumeInput = form.querySelector(
-          '[data-seed-dilution-section="cells"] input[name="seed_volume_per_seed_ml"]',
-        );
-        const seedTotalVolumeInput = form.querySelector(
-          '[data-seed-dilution-section="cells"] input[name="seed_total_volume_ml"]',
-        );
-        const cellsValue = seedCellsInput ? seedCellsInput.value.trim() : '';
-        const volumeValue = seedVolumeInput ? seedVolumeInput.value.trim() : '';
-        const totalVolumeValue = seedTotalVolumeInput ? seedTotalVolumeInput.value.trim() : '';
-        if (!cellsValue || !volumeValue || !totalVolumeValue) {
-          resultContainer.innerHTML =
-            '<p class="error">Provide cells, volume, and total volume for the seeding portion.</p>';
-          return;
-        }
-        seedPayload.cells_to_seed = cellsValue;
-        seedPayload.volume_per_seed_ml = volumeValue;
-        seedPayload.total_volume_ml = totalVolumeValue;
-      } else {
-        const finalConcInput = form.querySelector(
-          '[data-seed-dilution-section="concentration"] input[name="seed_final_concentration"]',
-        );
-        const totalVolumeInput = form.querySelector(
-          '[data-seed-dilution-section="concentration"] input[name="seed_total_volume_ml"]',
-        );
-        const finalConcValue = finalConcInput ? finalConcInput.value.trim() : '';
-        const totalVolumeValue = totalVolumeInput ? totalVolumeInput.value.trim() : '';
-        if (!finalConcValue || !totalVolumeValue) {
-          resultContainer.innerHTML =
-            '<p class="error">Provide the final concentration and total volume for the seeding portion.</p>';
-          return;
-        }
-        seedPayload.final_concentration = finalConcValue;
-        seedPayload.total_volume_ml = totalVolumeValue;
-      }
-
-      const splitPayload = buildSplitPayload();
-      if (!splitPayload) {
-        return;
-      }
-
-      const [seedData, splitData] = await Promise.all([
-        requestSeedingCalculation(seedPayload),
-        requestSeedingCalculation(splitPayload),
-      ]);
-
-      const seedPurposeRaw = formData.get('seed_purpose') || '';
-      const seedPurpose = typeof seedPurposeRaw === 'string' ? seedPurposeRaw.trim() : '';
-      if (seedPurpose) {
-        const purposeNote = `Seed purpose: ${seedPurpose}`;
-        if (seedData.note_suggestion) {
-          seedData.note_suggestion = `${seedData.note_suggestion} ${purposeNote}`;
-        } else {
-          seedData.note_suggestion = purposeNote;
-        }
-      }
-
-      const combined = {
-        mode: MODE_SEED_SPLIT,
-        seed: seedData,
-        split: splitData,
-        seedPurpose,
-      };
-
-      resultContainer.innerHTML = buildSeedingSummary(combined);
-      prepareSeedingResultActions(resultContainer, combined);
-    } catch (error) {
-      resultContainer.innerHTML = `<p class="error">${error.message}</p>`;
+      return;
     }
+
+    if (form.dataset.cultureEnded === 'true') {
+      submitHasErrors('Reactivate the culture before logging a new passage.');
+      return;
+    }
+
+    const seededHidden = form.querySelector('[data-seeding-seeded-cells]');
+    if (seededHidden) {
+      seededHidden.value = '';
+    }
+    const concentrationHidden = form.querySelector('[data-seeding-cell-concentration]');
+    if (concentrationHidden) {
+      concentrationHidden.value = String(resolved.concentration);
+    }
+    const measuredHidden = form.querySelector('[data-seeding-measured-yield]');
+    if (measuredHidden) {
+      if (Number.isFinite(resolved.measuredTotal)) {
+        measuredHidden.value = String(resolved.measuredTotal / 1_000_000);
+      } else {
+        measuredHidden.value = '';
+      }
+    }
+
+    let seedPortionCells = 0;
+    if (operation === MODE_SEED_SPLIT) {
+      const seedMode = form.dataset.seedMode || 'cells';
+      if (seedMode === 'cells') {
+        const cellsField = form.querySelector(
+          '[data-seed-dilution-section="cells"] input[name="seed_cells_to_seed"]'
+        );
+        const totalVolumeField = form.querySelector(
+          '[data-seed-dilution-section="cells"] input[name="seed_total_volume_ml"]'
+        );
+        const perVolumeField = form.querySelector(
+          '[data-seed-dilution-section="cells"] input[name="seed_volume_per_seed_ml"]'
+        );
+        const cellsValue = cellsField ? cellsField.value.trim() : '';
+        const totalVolumeValue = totalVolumeField ? totalVolumeField.value.trim() : '';
+        const perVolumeValue = perVolumeField ? perVolumeField.value.trim() : '';
+        if (!cellsValue || !totalVolumeValue || !perVolumeValue) {
+          submitHasErrors('Provide cells, volume, and total volume for the seeding portion.');
+          return;
+        }
+        const numericCells = parseNumericInput(cellsValue);
+        if (!Number.isFinite(numericCells) || numericCells <= 0) {
+          submitHasErrors('Enter the number of cells to seed.');
+          return;
+        }
+        seedPortionCells = numericCells;
+      } else {
+        const finalConcField = form.querySelector(
+          '[data-seed-dilution-section="concentration"] input[name="seed_final_concentration"]'
+        );
+        const totalVolumeField = form.querySelector(
+          '[data-seed-dilution-section="concentration"] input[name="seed_total_volume_ml"]'
+        );
+        const finalConcValue = finalConcField ? finalConcField.value.trim() : '';
+        const totalVolumeValue = totalVolumeField ? totalVolumeField.value.trim() : '';
+        if (!finalConcValue || !totalVolumeValue) {
+          submitHasErrors('Provide the final concentration and total volume for the seeding portion.');
+          return;
+        }
+        const finalConcNumeric = parseNumericInput(finalConcValue);
+        const totalVolumeNumeric = parseNumericInput(totalVolumeValue);
+        if (!Number.isFinite(finalConcNumeric) || finalConcNumeric <= 0) {
+          submitHasErrors('Enter a valid final concentration for the seed portion.');
+          return;
+        }
+        if (!Number.isFinite(totalVolumeNumeric) || totalVolumeNumeric <= 0) {
+          submitHasErrors('Enter a valid total volume for the seed portion.');
+          return;
+        }
+        seedPortionCells = finalConcNumeric * totalVolumeNumeric;
+      }
+    }
+
+    const manualField = form.querySelector('input[name="remainder_manual_seeded"]');
+    const manualValue = manualField ? manualField.value.trim() : '';
+
+    let lastCalculation = null;
+    if (form.dataset.lastCalculation) {
+      try {
+        lastCalculation = JSON.parse(form.dataset.lastCalculation);
+      } catch (error) {
+        lastCalculation = null;
+      }
+    }
+
+    let splitDataForSeed = null;
+    let seedDataForSeed = null;
+    if (lastCalculation) {
+      if (lastCalculation.mode === MODE_SEED_SPLIT) {
+        splitDataForSeed = lastCalculation.split || null;
+        seedDataForSeed = lastCalculation.seed || null;
+      } else {
+        splitDataForSeed = lastCalculation;
+      }
+    }
+
+    if (
+      operation === MODE_SEED_SPLIT &&
+      (!seedDataForSeed || Object.keys(seedDataForSeed).length === 0) &&
+      Number.isFinite(seedPortionCells) &&
+      seedPortionCells > 0
+    ) {
+      seedDataForSeed = {
+        required_cells_total: seedPortionCells,
+        required_cells: seedPortionCells,
+        cells_needed: seedPortionCells,
+      };
+    }
+
+    let seededCells = null;
+    let seededDisplay = '';
+    if (remainderMode !== 'calculate') {
+      const seededResult = computeSeededCells({
+        remainderMode,
+        manualValue,
+        measuredTotal: resolved.measuredTotal,
+        splitData: splitDataForSeed,
+        seedData: seedDataForSeed,
+      });
+      if (seededResult.error) {
+        submitHasErrors(seededResult.error);
+        return;
+      }
+      if (Number.isFinite(seededResult.value)) {
+        seededCells = seededResult.value;
+      } else if (remainderMode === 'all') {
+        seededDisplay = 'Seeded everything';
+      }
+    }
+
+    if (seededHidden) {
+      if (Number.isFinite(seededCells)) {
+        seededHidden.value = String(seededCells);
+      } else {
+        seededHidden.value = '';
+      }
+    }
+
+    if (Number.isFinite(seededCells)) {
+      seededDisplay = formatCells(seededCells);
+    } else if (remainderMode === 'all' && !seededDisplay) {
+      seededDisplay = 'Seeded everything';
+    }
+
+    updateCalculatedSeeded(seededCells, seededDisplay);
+    delete form.dataset.lastCalculation;
+
+    const notesField = form.querySelector('#notes-field');
+    if (notesField) {
+      const purpose = form.querySelector('input[name="seed_purpose"]')?.value?.trim();
+      let noteText =
+        operation === MODE_SEED_SPLIT
+          ? purpose
+            ? `Seed & split (${purpose})`
+            : 'Seed & split'
+          : 'Split culture';
+      if (remainderMode === 'all') {
+        const selectedTotalArea = getSelectedTotalArea();
+        const expanded =
+          lastTotalArea !== null &&
+          selectedTotalArea !== null &&
+          selectedTotalArea > lastTotalArea;
+        if (expanded) {
+          if (operation === MODE_SEED_SPLIT) {
+            noteText = `${noteText}, expanded- seeded everything`;
+          } else {
+            noteText = 'Split culture, expanded- seeded everything';
+          }
+        } else {
+          noteText = `${noteText} - seeded everything`;
+        }
+      }
+      applyGeneratedNote(notesField, noteText);
+    }
+
+    resultContainer.textContent = '';
+    form.submit();
   });
-}
-
-async function copyLabelToClipboard(resultData) {
-  const form = document.querySelector('#seeding-form');
-  if (!form || !resultData) {
-    return;
-  }
-
-  let data = resultData;
-  let seedData = null;
-  if (resultData && resultData.mode === MODE_SEED_SPLIT) {
-    data = resultData.split;
-    seedData = resultData.seed;
-  }
-
-  const today = form.dataset.today || new Date().toISOString().slice(0, 10);
-  const cultureName = form.dataset.cultureName || '';
-  const nextPassageRaw = form.dataset.nextPassage || '';
-  const remainderMode = form.dataset.remainderMode || 'calculate';
-  const manualField = form.querySelector('input[name="remainder_manual_seeded"]');
-  const manualValue = manualField ? manualField.value : '';
-  const measuredTotal = form.dataset.measuredTotal
-    ? parseNumericInput(form.dataset.measuredTotal)
-    : null;
-  const seededResult = computeSeededCells({
-    remainderMode,
-    manualValue,
-    measuredTotal,
-    splitData: data,
-    seedData,
-  });
-  if (seededResult.error && remainderMode !== 'calculate') {
-    window.alert(seededResult.error);
-    return;
-  }
-
-  let seededNumeric = seededResult.value;
-  if (seededNumeric === null || seededNumeric === undefined || Number.isNaN(seededNumeric)) {
-    seededNumeric = pickNumericValue([
-      data?.required_cells_total,
-      data?.required_cells,
-      data?.cells_needed,
-      data?.final_cells_total,
-      seedData?.cells_needed,
-    ]);
-  }
-
-  let cellsText = '—';
-  if (Number.isFinite(seededNumeric)) {
-    cellsText = formatCellsForLabel(seededNumeric);
-  } else if (data) {
-    cellsText =
-      data.cells_needed_formatted ||
-      data.required_cells_total_formatted ||
-      data.required_cells_formatted ||
-      data.cells_needed ||
-      data.required_cells_total ||
-      data.required_cells ||
-      '—';
-  }
-
-  const parts = [];
-  if (cultureName) {
-    parts.push(`Culture: ${cultureName}`);
-  }
-  parts.push(`Date: ${today}`);
-
-  if (nextPassageRaw) {
-    const normalized = String(nextPassageRaw).startsWith('P')
-      ? String(nextPassageRaw)
-      : `P${nextPassageRaw}`;
-    parts.push(`Passage: ${normalized}`);
-  }
-
-  parts.push(`Cells seeded: ${cellsText}`);
-
-  const labelText = parts.join('\n');
-  await copyPlainText(labelText);
 }
 
 async function requestSeedingCalculation(payload) {
@@ -1147,6 +1396,27 @@ function attachSeedingOperationSwitcher() {
   const operationRadios = form.querySelectorAll('input[name="operation"]');
   const seedModeRadios = form.querySelectorAll('input[name="seed_dilution_mode"]');
   const remainderRadios = form.querySelectorAll('input[name="remainder_mode"]');
+  const vesselSelect = form.querySelector('select[name="vessel_id"]');
+  const vesselSummary = form.querySelector('[data-vessel-summary]');
+  const submitButton = form.querySelector('[data-seeding-submit]');
+
+  const updateVesselSummary = () => {
+    if (!vesselSummary) {
+      return;
+    }
+    if (!vesselSelect || !vesselSelect.value) {
+      vesselSummary.textContent = 'Selected vessel: —';
+      return;
+    }
+    const selectedOption = vesselSelect.selectedOptions?.[0];
+    const vesselName = selectedOption?.dataset.name || selectedOption?.textContent?.trim() || 'Selected vessel';
+    const vesselArea = selectedOption?.dataset.area;
+    const parts = [`Selected vessel: ${vesselName}`];
+    if (vesselArea) {
+      parts.push(`(${vesselArea} cm²)`);
+    }
+    vesselSummary.textContent = parts.join(' ');
+  };
 
   const updateModeLabels = () => {
     const modeLabels = form.querySelectorAll('.mode-toggle label');
@@ -1157,6 +1427,29 @@ function attachSeedingOperationSwitcher() {
       }
       label.classList.toggle('is-selected', input.checked);
     });
+  };
+
+  const updateSubmitAction = () => {
+    if (!submitButton) {
+      return;
+    }
+    const remainderModeRadio = form.querySelector('input[name="remainder_mode"]:checked');
+    const mode = remainderModeRadio ? remainderModeRadio.value : 'calculate';
+    const ended = form.dataset.cultureEnded === 'true';
+    if (mode === 'calculate') {
+      submitButton.textContent = 'Calculate plan';
+      submitButton.disabled = false;
+      submitButton.removeAttribute('title');
+    } else {
+      submitButton.textContent = 'Save passage';
+      if (ended) {
+        submitButton.disabled = true;
+        submitButton.title = 'Reactivate the culture before logging a new passage.';
+      } else {
+        submitButton.disabled = false;
+        submitButton.removeAttribute('title');
+      }
+    }
   };
 
   const updateSeedMode = () => {
@@ -1201,6 +1494,8 @@ function attachSeedingOperationSwitcher() {
       });
     });
     updateModeLabels();
+    updateVesselSummary();
+    updateSubmitAction();
   };
 
   const updateOperation = () => {
@@ -1246,6 +1541,7 @@ function attachSeedingOperationSwitcher() {
 
     updateSeedMode();
     updateRemainderMode();
+    updateSubmitAction();
   };
 
   const updateSeedModeRadio = () => {
@@ -1267,19 +1563,62 @@ function attachSeedingOperationSwitcher() {
     radio.addEventListener('change', updateRemainderMode);
   });
 
+  if (vesselSelect) {
+    vesselSelect.addEventListener('change', updateVesselSummary);
+  }
+
   updateSeedModeRadio();
   updateRemainderMode();
   updateOperation();
+  updateVesselSummary();
+  updateSubmitAction();
 }
 
-function attachMycoTableCopyHandlers() {
-  const buttons = document.querySelectorAll('.copy-myco-table');
+function applyLabelAugments(text, appendDate, dateValue, appendExtra) {
+  let output = text.trim();
+  if (appendDate && dateValue) {
+    output = output ? `${output} ${dateValue}` : dateValue;
+  }
+  if (appendExtra) {
+    output = output ? `${output} ${appendExtra}` : appendExtra;
+  }
+  return output;
+}
+
+function attachLabelAppendControls() {
+  const groups = document.querySelectorAll('[data-label-append-controls]');
+  if (!groups.length) {
+    return;
+  }
+
+  groups.forEach((group) => {
+    const dateButton = group.querySelector('[data-append-today]');
+    const setState = (active) => {
+      group.dataset.appendDate = active ? 'true' : 'false';
+      if (dateButton) {
+        dateButton.setAttribute('aria-pressed', active ? 'true' : 'false');
+      }
+    };
+
+    if (dateButton) {
+      dateButton.addEventListener('click', () => {
+        const active = group.dataset.appendDate === 'true';
+        setState(!active);
+      });
+    }
+
+    setState(group.dataset.appendDate === 'true');
+  });
+}
+
+function attachLabelTableCopyHandlers() {
+  const buttons = document.querySelectorAll('[data-copy-label-table]');
   if (!buttons.length) {
     return;
   }
 
   buttons.forEach((button) => {
-    const tableId = button.dataset.tableId;
+    const tableId = button.dataset.copyLabelTable;
     if (!tableId) {
       return;
     }
@@ -1288,6 +1627,9 @@ function attachMycoTableCopyHandlers() {
     if (!table) {
       return;
     }
+
+    const controlsId = button.dataset.labelControls;
+    const controls = controlsId ? document.getElementById(controlsId) : null;
 
     button.addEventListener('click', async () => {
       const rows = Array.from(table.querySelectorAll('tbody tr'));
@@ -1301,19 +1643,27 @@ function attachMycoTableCopyHandlers() {
       });
 
       const rowsToCopy = selectedRows.length ? selectedRows : rows;
+      const appendDate = controls?.dataset.appendDate === 'true';
+      const dateValue = controls?.dataset.today || '';
+      const appendInput = controls?.querySelector('[data-append-text]');
+      const appendExtra = appendInput ? appendInput.value.trim() : '';
+
       const lines = rowsToCopy
         .map((row) => {
           const label = row.querySelector('.label-snippet');
-          const culture = row.querySelector('.myco-culture');
-          const labelText = label ? label.textContent.trim() : '';
-          const cultureText = culture ? culture.textContent.trim() : '';
-          if (!labelText && !cultureText) {
+          const extra = row.querySelector('.label-extra');
+          let labelText = label ? label.textContent.trim() : '';
+          if (controls) {
+            labelText = applyLabelAugments(labelText, appendDate, dateValue, appendExtra);
+          }
+          const extraText = extra ? extra.textContent.trim() : '';
+          if (!labelText && !extraText) {
             return '';
           }
-          if (!cultureText) {
+          if (!extraText) {
             return labelText;
           }
-          return `${labelText}\t${cultureText}`;
+          return `${labelText}\t${extraText}`;
         })
         .filter((line) => line);
 
@@ -1325,14 +1675,67 @@ function attachMycoTableCopyHandlers() {
   });
 }
 
-function attachMycoSelectAllHandlers() {
-  const buttons = document.querySelectorAll('.copy-myco-select-all');
+function attachMycoStatusForms() {
+  const forms = document.querySelectorAll('[data-myco-status-form]');
+  if (!forms.length) {
+    return;
+  }
+
+  forms.forEach((form) => {
+    const select = form.querySelector('[data-myco-select]');
+    const badge = form.parentElement?.querySelector('[data-myco-badge]');
+    const locked = form.dataset.mycoLocked === 'true';
+
+    const applyBadge = () => {
+      if (!badge) {
+        return;
+      }
+      const value = select?.value || 'myco_untested';
+      const label = select?.selectedOptions?.[0]?.textContent?.trim();
+      if (label) {
+        badge.textContent = label;
+      }
+      badge.className = `myco-badge status-${value || 'myco_untested'}`;
+    };
+
+    applyBadge();
+
+    if (select) {
+      select.addEventListener('change', () => {
+        applyBadge();
+      });
+    }
+
+    if (locked) {
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+      });
+    }
+  });
+}
+
+function attachPassageInfoButtons() {
+  const buttons = document.querySelectorAll('[data-passage-info]');
+  if (!buttons.length) {
+    return;
+  }
+
+  const message = 'Cultures that exceed the passage limit will be highlighted in the list.';
+  buttons.forEach((button) => {
+    button.addEventListener('click', () => {
+      window.alert(message);
+    });
+  });
+}
+
+function attachLabelTableSelectAllHandlers() {
+  const buttons = document.querySelectorAll('[data-select-label-table]');
   if (!buttons.length) {
     return;
   }
 
   buttons.forEach((button) => {
-    const tableId = button.dataset.tableId;
+    const tableId = button.dataset.selectLabelTable;
     if (!tableId) {
       return;
     }
@@ -1343,18 +1746,53 @@ function attachMycoSelectAllHandlers() {
     }
 
     button.addEventListener('click', () => {
-      const checkboxes = Array.from(
-        table.querySelectorAll('tbody .label-select')
-      );
+      const checkboxes = Array.from(table.querySelectorAll('tbody .label-select'));
       if (!checkboxes.length) {
         return;
       }
 
       const shouldSelectAll = !checkboxes.every((checkbox) => checkbox.checked);
       checkboxes.forEach((checkbox) => {
+        // eslint-disable-next-line no-param-reassign
         checkbox.checked = shouldSelectAll;
       });
     });
+  });
+}
+
+function attachCollapsibleCards() {
+  const toggles = document.querySelectorAll('[data-collapse-target]');
+  if (!toggles.length) {
+    return;
+  }
+
+  toggles.forEach((toggle) => {
+    const targetId = toggle.dataset.collapseTarget;
+    if (!targetId) {
+      return;
+    }
+
+    const target = document.getElementById(targetId);
+    if (!target) {
+      return;
+    }
+
+    const indicator = toggle.querySelector('.collapse-indicator');
+
+    const setExpanded = (expanded) => {
+      toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      target.hidden = !expanded;
+      if (indicator) {
+        indicator.textContent = expanded ? '-' : '+';
+      }
+    };
+
+    toggle.addEventListener('click', () => {
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      setExpanded(!expanded);
+    });
+
+    setExpanded(false);
   });
 }
 
@@ -1515,6 +1953,9 @@ function initBulkProcessing() {
       const option = document.createElement('option');
       option.value = String(vessel.id);
       option.textContent = vessel.name;
+      if (vessel.area_cm2 !== undefined && vessel.area_cm2 !== null) {
+        option.dataset.area = String(vessel.area_cm2);
+      }
       if (selectedId && Number.parseInt(selectedId, 10) === vessel.id) {
         option.selected = true;
       }
@@ -1546,6 +1987,53 @@ function initBulkProcessing() {
       return culture.default_slurry_volume_ml;
     }
     return '';
+  };
+
+  const parseAreaValue = (raw) => {
+    const parsed = parseNumericInput(raw);
+    if (parsed === null || Number.isNaN(parsed) || parsed <= 0) {
+      return null;
+    }
+    return parsed;
+  };
+
+  const getRowSelectedTotalArea = (row) => {
+    if (!row) {
+      return null;
+    }
+    const vesselSelect = row.querySelector('.bulk-vessel');
+    if (!vesselSelect || !vesselSelect.value) {
+      return null;
+    }
+    const option = vesselSelect.selectedOptions?.[0];
+    if (!option) {
+      return null;
+    }
+    const areaPerVessel = parseAreaValue(option.dataset.area);
+    if (areaPerVessel === null) {
+      return null;
+    }
+    const vesselsInput = row.querySelector('.bulk-vessels-used');
+    let count = null;
+    if (vesselsInput && vesselsInput.value) {
+      const parsedCount = parseNumericInput(vesselsInput.value);
+      if (parsedCount !== null && !Number.isNaN(parsedCount) && parsedCount > 0) {
+        count = parsedCount;
+      }
+    }
+    if (count === null) {
+      count = 1;
+    }
+    return areaPerVessel * count;
+  };
+
+  const isRowExpanded = (row) => {
+    if (!row) {
+      return false;
+    }
+    const lastArea = parseAreaValue(row.dataset.lastTotalArea);
+    const currentArea = getRowSelectedTotalArea(row);
+    return lastArea !== null && currentArea !== null && currentArea > lastArea;
   };
 
   const setActiveTab = (tab) => {
@@ -1815,6 +2303,9 @@ function initBulkProcessing() {
       } else {
         row.dataset.defaultConcentration = '1000000';
       }
+      if (culture.last_total_area_cm2 != null) {
+        row.dataset.lastTotalArea = String(culture.last_total_area_cm2);
+      }
 
       const plannerCell = row.insertCell();
       plannerCell.className = 'bulk-cell';
@@ -1929,11 +2420,6 @@ function initBulkProcessing() {
               <input type="text" class="bulk-doubling-override" />
             </label>
           </section>
-          <label>
-            <span>Measured yield (cells)</span>
-            <input type="text" class="bulk-measured-yield" />
-            <p class="form-hint">Optional override for harvested total.</p>
-          </label>
           <div class="form-actions inline">
             <button type="button" class="button secondary small bulk-calc">Calculate</button>
           </div>
@@ -2006,11 +2492,6 @@ function initBulkProcessing() {
       if (totalVolumeInput) {
         totalVolumeInput.value = '20';
       }
-      const measuredYieldInput = row.querySelector('.bulk-measured-yield');
-      if (measuredYieldInput && culture.measured_cells_total != null) {
-        measuredYieldInput.value = String(culture.measured_cells_total);
-      }
-
       const dateInput = row.querySelector('.bulk-date');
       if (dateInput) {
         dateInput.value = today;
@@ -2311,27 +2792,7 @@ function initBulkProcessing() {
     resultContainer.textContent = 'Calculating…';
   }
 
-  const measuredYieldField = row.querySelector('.bulk-measured-yield');
-  let measuredYieldOverride = null;
-  if (measuredYieldField) {
-    const measuredYieldRaw = measuredYieldField.value?.trim();
-    if (measuredYieldRaw) {
-      measuredYieldOverride = parseNumericInput(measuredYieldRaw);
-      if (
-        measuredYieldOverride === null ||
-        !Number.isFinite(measuredYieldOverride) ||
-        measuredYieldOverride <= 0
-      ) {
-        if (resultContainer) {
-          resultContainer.innerHTML =
-            '<p class="error">Enter a valid measured yield (e.g. 1.5e7 cells) before calculating.</p>';
-        }
-        return;
-      }
-    }
-  }
-
-  let measuredTotal = Number.isFinite(measuredYieldOverride) ? measuredYieldOverride : null;
+  let measuredTotal = null;
   if (measuredTotal === null && row.dataset.measuredTotal) {
     const parsedTotal = parseNumericInput(row.dataset.measuredTotal);
     if (Number.isFinite(parsedTotal) && parsedTotal > 0) {
@@ -2386,7 +2847,6 @@ function initBulkProcessing() {
   }
 
   const resolvedConcentration = resolveSeedingConcentration({
-    measuredYieldOverride,
     measuredTotal,
     measuredConcentration,
     measuredVolume,
@@ -2492,31 +2952,41 @@ function initBulkProcessing() {
       if (hasError) {
         window.alert(`${cultureName}: ${seededResult.error}`);
       }
-      let seededValue = seededResult.value;
-      if (
-        (seededValue === null || seededValue === undefined || Number.isNaN(seededValue)) &&
-        !hasError
-      ) {
-        seededValue = data.required_cells_total ?? '';
-      }
+
       if (seededInput) {
-        seededInput.value = seededValue ?? '';
+        if (remainderMode === 'all' && !Number.isFinite(seededResult.value) && !hasError) {
+          seededInput.value = '';
+          seededInput.placeholder = 'Seeded everything';
+        } else {
+          const fallbackValue = Number.isFinite(seededResult.value)
+            ? seededResult.value
+            : data.required_cells_total ?? '';
+          seededInput.value = fallbackValue ?? '';
+          if (seededInput.placeholder) {
+            seededInput.placeholder = '';
+          }
+        }
       }
 
-      const numericSeeded = Number.isFinite(seededResult.value)
-        ? seededResult.value
-        : parseNumericInput(seededValue);
-      if (Number.isFinite(numericSeeded)) {
-        row.dataset.calculatedSeeded = String(numericSeeded);
-        row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
-      } else if (data.required_cells_total !== undefined) {
-        row.dataset.calculatedSeeded = String(data.required_cells_total);
-        row.dataset.calculatedSeededDisplay =
-          data.required_cells_total_formatted ||
-          formatCells(data.required_cells_total);
-      } else {
+      if (remainderMode === 'all' && !Number.isFinite(seededResult.value) && !hasError) {
         delete row.dataset.calculatedSeeded;
-        delete row.dataset.calculatedSeededDisplay;
+        row.dataset.calculatedSeededDisplay = 'Seeded everything';
+      } else {
+        const numericSeeded = Number.isFinite(seededResult.value)
+          ? seededResult.value
+          : parseNumericInput(seededInput ? seededInput.value : data.required_cells_total);
+        if (Number.isFinite(numericSeeded)) {
+          row.dataset.calculatedSeeded = String(numericSeeded);
+          row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
+        } else if (data.required_cells_total !== undefined) {
+          row.dataset.calculatedSeeded = String(data.required_cells_total);
+          row.dataset.calculatedSeededDisplay =
+            data.required_cells_total_formatted ||
+            formatCells(data.required_cells_total);
+        } else {
+          delete row.dataset.calculatedSeeded;
+          delete row.dataset.calculatedSeededDisplay;
+        }
       }
 
       const vesselSelect = row.querySelector('.bulk-vessel');
@@ -2529,7 +2999,15 @@ function initBulkProcessing() {
       }
 
       const notesField = row.querySelector('.bulk-notes');
-      applyGeneratedNote(notesField, 'Split culture');
+      let splitNote = 'Split culture';
+      if (remainderMode === 'all') {
+        if (isRowExpanded(row)) {
+          splitNote = 'Split culture, expanded- seeded everything';
+        } else {
+          splitNote = `${splitNote} - seeded everything`;
+        }
+      }
+      applyGeneratedNote(notesField, splitNote);
 
       row.dataset.lastCalculation = JSON.stringify(data);
       return;
@@ -2647,35 +3125,52 @@ function initBulkProcessing() {
     if (hasError) {
       window.alert(`${cultureName}: ${seededResult.error}`);
     }
-    let seededValue = seededResult.value;
-    if (
-      (seededValue === null || seededValue === undefined || Number.isNaN(seededValue)) &&
-      !hasError
-    ) {
-      seededValue = splitData.required_cells_total ?? '';
-    }
+
     if (seededInput) {
-      seededInput.value = seededValue ?? '';
+      if (remainderMode === 'all' && !Number.isFinite(seededResult.value) && !hasError) {
+        seededInput.value = '';
+        seededInput.placeholder = 'Seeded everything';
+      } else {
+        const fallbackValue = Number.isFinite(seededResult.value)
+          ? seededResult.value
+          : splitData.required_cells_total ?? '';
+        seededInput.value = fallbackValue ?? '';
+        if (seededInput.placeholder) {
+          seededInput.placeholder = '';
+        }
+      }
     }
 
-    const numericSeeded = Number.isFinite(seededResult.value)
-      ? seededResult.value
-      : parseNumericInput(seededValue);
-    if (Number.isFinite(numericSeeded)) {
-      row.dataset.calculatedSeeded = String(numericSeeded);
-      row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
-    } else if (splitData.required_cells_total !== undefined) {
-      row.dataset.calculatedSeeded = String(splitData.required_cells_total);
-      row.dataset.calculatedSeededDisplay =
-        splitData.required_cells_total_formatted ||
-        formatCells(splitData.required_cells_total);
-    } else {
+    if (remainderMode === 'all' && !Number.isFinite(seededResult.value) && !hasError) {
       delete row.dataset.calculatedSeeded;
-      delete row.dataset.calculatedSeededDisplay;
+      row.dataset.calculatedSeededDisplay = 'Seeded everything';
+    } else {
+      const numericSeeded = Number.isFinite(seededResult.value)
+        ? seededResult.value
+        : parseNumericInput(seededInput ? seededInput.value : splitData.required_cells_total);
+      if (Number.isFinite(numericSeeded)) {
+        row.dataset.calculatedSeeded = String(numericSeeded);
+        row.dataset.calculatedSeededDisplay = formatCells(numericSeeded);
+      } else if (splitData.required_cells_total !== undefined) {
+        row.dataset.calculatedSeeded = String(splitData.required_cells_total);
+        row.dataset.calculatedSeededDisplay =
+          splitData.required_cells_total_formatted ||
+          formatCells(splitData.required_cells_total);
+      } else {
+        delete row.dataset.calculatedSeeded;
+        delete row.dataset.calculatedSeededDisplay;
+      }
     }
 
     const notesField = row.querySelector('.bulk-notes');
-    const noteText = seedPurpose ? `Seed & split (${seedPurpose})` : 'Seed & split';
+    let noteText = seedPurpose ? `Seed & split (${seedPurpose})` : 'Seed & split';
+    if (remainderMode === 'all') {
+      if (isRowExpanded(row)) {
+        noteText = `${noteText}, expanded- seeded everything`;
+      } else {
+        noteText = `${noteText} - seeded everything`;
+      }
+    }
     applyGeneratedNote(notesField, noteText);
 
     row.dataset.lastCalculation = JSON.stringify(combined);
@@ -2748,15 +3243,7 @@ function initBulkProcessing() {
           entry.doubling_time_override = override;
         }
         let measuredYieldValue = null;
-        const measuredYieldInput = row.querySelector('.bulk-measured-yield');
-        if (measuredYieldInput && measuredYieldInput.value?.trim()) {
-          const parsedYield = parseNumericInput(measuredYieldInput.value);
-          if (Number.isFinite(parsedYield) && parsedYield > 0) {
-            measuredYieldValue = parsedYield;
-            row.dataset.measuredTotal = String(parsedYield);
-          }
-        }
-        if (measuredYieldValue === null && row.dataset.measuredTotal) {
+        if (row.dataset.measuredTotal) {
           const parsedTotal = parseNumericInput(row.dataset.measuredTotal);
           if (Number.isFinite(parsedTotal) && parsedTotal > 0) {
             measuredYieldValue = parsedTotal;
@@ -3203,12 +3690,17 @@ function initBulkProcessing() {
 document.addEventListener('DOMContentLoaded', () => {
   attachHarvestTabs();
   attachMediaCheckboxHandler();
-  attachPassageLabelCopyHandler();
+  attachSeedingLabelCopyHandler();
   attachSeedingOperationSwitcher();
   attachSeedingFormHandler();
-  attachMycoSelectAllHandlers();
-  attachMycoTableCopyHandlers();
+  attachLabelAppendControls();
+  attachLabelTableSelectAllHandlers();
+  attachLabelTableCopyHandlers();
+  attachMycoStatusForms();
+  attachPassageInfoButtons();
   attachCulturePrintHandlers();
   initBulkProcessing();
   attachEndCultureHandlers();
+  attachCloneCultureHandlers();
+  attachCollapsibleCards();
 });

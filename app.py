@@ -60,6 +60,42 @@ HARVEST_VOLUME_HINTS: list[tuple[str, float]] = [
 PASSAGE_WARNING_SETTING = "passage_warning_threshold"
 DEFAULT_PASSAGE_WARNING = 20
 
+STALE_WARNING_SETTING = "stale_cutoff_days"
+DEFAULT_STALE_CUTOFF_DAYS = 4
+
+LABEL_LIBRARY_SETTING = "label_library"
+DEFAULT_LABEL_LIBRARY = [
+    "+10% FBS + anti-/anti",
+    "FBS",
+    "0.05% trypsin-EDTA",
+    "CTG reagent",
+]
+
+MYCO_STATUS_UNTESTED = "myco_untested"
+MYCO_STATUS_TESTED = "myco_tested"
+MYCO_STATUS_FREE = "myco_free"
+MYCO_STATUS_CONTAMINATED = "myco_contaminated"
+
+MYCO_STATUS_CHOICES: list[tuple[str, str]] = [
+    (MYCO_STATUS_UNTESTED, "Myco-untested"),
+    (MYCO_STATUS_FREE, "Myco-free"),
+    (MYCO_STATUS_CONTAMINATED, "Myco-contaminated"),
+]
+
+MYCO_STATUS_DISPLAY_FALLBACK = {
+    MYCO_STATUS_TESTED: "Myco-free",
+}
+
+
+def normalize_myco_status(value: Optional[str]) -> str:
+    if not value:
+        return MYCO_STATUS_UNTESTED
+    if value == MYCO_STATUS_TESTED:
+        return MYCO_STATUS_FREE
+    if value in {MYCO_STATUS_UNTESTED, MYCO_STATUS_FREE, MYCO_STATUS_CONTAMINATED}:
+        return value
+    return MYCO_STATUS_UNTESTED
+
 
 def suggest_slurry_volume(vessel_name: Optional[str]) -> Optional[float]:
     if not vessel_name:
@@ -110,6 +146,7 @@ class Culture(db.Model):
     start_date = db.Column(db.Date, nullable=False, default=date.today)
     notes = db.Column(db.Text, nullable=True)
     ended_on = db.Column(db.Date, nullable=True)
+    last_handled_on = db.Column(db.Date, nullable=True)
     measured_cell_concentration = db.Column(db.Float, nullable=True)
     measured_slurry_volume_ml = db.Column(db.Float, nullable=True)
     pre_split_confluence_percent = db.Column(db.Integer, nullable=True)
@@ -151,6 +188,13 @@ class Culture(db.Model):
             return self.measured_cell_concentration * self.measured_slurry_volume_ml
         return None
 
+    @property
+    def current_myco_status(self) -> str:
+        latest = self.latest_passage
+        if latest and latest.myco_status:
+            return normalize_myco_status(latest.myco_status)
+        return MYCO_STATUS_UNTESTED
+
 
 class Passage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -167,6 +211,8 @@ class Passage(db.Model):
     measured_yield_cells = db.Column(db.Float, nullable=True)
     pre_split_confluence_percent = db.Column(db.Integer, nullable=True)
     measured_viability_percent = db.Column(db.Integer, nullable=True)
+    myco_status = db.Column(db.String(32), nullable=True)
+    myco_status_locked = db.Column(db.Boolean, nullable=False, default=False)
 
     culture = db.relationship("Culture", back_populates="passages")
     vessel = db.relationship("Vessel")
@@ -248,6 +294,10 @@ def setup_database() -> None:
     ensure_columns()
     if Setting.get_value(PASSAGE_WARNING_SETTING) is None:
         Setting.set_value(PASSAGE_WARNING_SETTING, str(DEFAULT_PASSAGE_WARNING))
+    if Setting.get_value(STALE_WARNING_SETTING) is None:
+        Setting.set_value(STALE_WARNING_SETTING, str(DEFAULT_STALE_CUTOFF_DAYS))
+    if Setting.get_value(LABEL_LIBRARY_SETTING) is None:
+        Setting.set_value(LABEL_LIBRARY_SETTING, json.dumps(DEFAULT_LABEL_LIBRARY))
 
 
 def ensure_columns() -> None:
@@ -277,6 +327,8 @@ def ensure_columns() -> None:
             connection.execute(
                 text("ALTER TABLE culture ADD COLUMN measured_slurry_volume_ml FLOAT")
             )
+        if not has_column("culture", "last_handled_on"):
+            connection.execute(text("ALTER TABLE culture ADD COLUMN last_handled_on DATE"))
         if not has_column("culture", "pre_split_confluence_percent"):
             connection.execute(
                 text("ALTER TABLE culture ADD COLUMN pre_split_confluence_percent INTEGER")
@@ -295,6 +347,24 @@ def ensure_columns() -> None:
             )
         if not has_column("culture", "end_reason"):
             connection.execute(text("ALTER TABLE culture ADD COLUMN end_reason TEXT"))
+        if not has_column("passage", "myco_status"):
+            connection.execute(text("ALTER TABLE passage ADD COLUMN myco_status TEXT"))
+        if not has_column("passage", "myco_status_locked"):
+            connection.execute(
+                text("ALTER TABLE passage ADD COLUMN myco_status_locked BOOLEAN DEFAULT 0")
+            )
+        connection.execute(
+            text(
+                "UPDATE passage SET myco_status = :free WHERE myco_status = :tested"
+            ),
+            {"free": MYCO_STATUS_FREE, "tested": MYCO_STATUS_TESTED},
+        )
+        connection.execute(
+            text(
+                "UPDATE culture SET last_handled_on = start_date "
+                "WHERE last_handled_on IS NULL"
+            )
+        )
 
 
 def parse_date(value: str | None) -> date:
@@ -420,9 +490,21 @@ def format_significant(value: Optional[float], digits: int = 2) -> Optional[str]
     return f"{rounded:.{scale}f}"
 
 
+def display_myco_status(value: Optional[str]) -> str:
+    lookup = {key: label for key, label in MYCO_STATUS_CHOICES}
+    normalized = normalize_myco_status(value)
+    if normalized in lookup:
+        return lookup[normalized]
+    fallback = MYCO_STATUS_DISPLAY_FALLBACK.get(normalized)
+    if fallback:
+        return fallback
+    return lookup[MYCO_STATUS_UNTESTED]
+
+
 app.jinja_env.filters["format_cells"] = format_cells
 app.jinja_env.filters["format_hours"] = format_hours
 app.jinja_env.filters["format_volume"] = format_volume
+app.jinja_env.filters["display_myco_status"] = display_myco_status
 
 
 def get_passage_warning_threshold() -> int:
@@ -434,6 +516,40 @@ def get_passage_warning_threshold() -> int:
     except (TypeError, ValueError):
         return DEFAULT_PASSAGE_WARNING
     return max(1, value)
+
+
+def get_stale_cutoff_days() -> int:
+    raw = Setting.get_value(STALE_WARNING_SETTING)
+    if raw is None:
+        return DEFAULT_STALE_CUTOFF_DAYS
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_STALE_CUTOFF_DAYS
+    return max(0, value)
+
+
+def get_label_library() -> list[str]:
+    raw = Setting.get_value(LABEL_LIBRARY_SETTING)
+    if not raw:
+        return DEFAULT_LABEL_LIBRARY.copy()
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return DEFAULT_LABEL_LIBRARY.copy()
+    if not isinstance(data, list):
+        return DEFAULT_LABEL_LIBRARY.copy()
+    labels: list[str] = []
+    for entry in data:
+        if isinstance(entry, str):
+            cleaned = entry.strip()
+            if cleaned:
+                labels.append(cleaned)
+    return labels
+
+
+def save_label_library(labels: list[str]) -> None:
+    Setting.set_value(LABEL_LIBRARY_SETTING, json.dumps(labels))
 
 
 @app.route("/")
@@ -453,7 +569,8 @@ def index():
 
     today_value = date.today()
     passage_warning_threshold = get_passage_warning_threshold()
-    stale_cutoff_days = 4
+    stale_cutoff_days = get_stale_cutoff_days()
+    label_library = get_label_library()
 
     t75_vessel_id = None
     for vessel in vessels:
@@ -464,13 +581,19 @@ def index():
     bulk_culture_payload: list[dict] = []
     for culture in active_cultures:
         latest = culture.latest_passage
-        if latest is not None:
-            days_since_last_passage = (today_value - latest.date).days
-        else:
-            days_since_last_passage = (today_value - culture.start_date).days
-        culture.days_since_last_passage = days_since_last_passage
-        culture.is_stale = days_since_last_passage is not None and days_since_last_passage > stale_cutoff_days
+        last_activity_date = culture.start_date
+        if latest is not None and latest.date > last_activity_date:
+            last_activity_date = latest.date
+        if culture.last_handled_on and culture.last_handled_on > last_activity_date:
+            last_activity_date = culture.last_handled_on
+        days_since_last_activity = (today_value - last_activity_date).days
+
+        culture.days_since_last_passage = days_since_last_activity
+        culture.is_stale = days_since_last_activity is not None and days_since_last_activity > stale_cutoff_days
         culture.passage_warning_threshold = passage_warning_threshold
+        culture.current_myco_status_value = culture.current_myco_status
+        culture.current_myco_status_label = display_myco_status(culture.current_myco_status_value)
+        culture.myco_status_locked = bool(latest and latest.myco_status_locked)
         default_cell_concentration = culture.measured_cell_concentration
         if default_cell_concentration is None and latest and latest.cell_concentration:
             default_cell_concentration = latest.cell_concentration
@@ -508,6 +631,11 @@ def index():
         if default_slurry_volume_ml is None:
             default_slurry_volume_ml = suggest_slurry_volume(latest_vessel_name)
 
+        last_total_area = None
+        if latest and latest.vessel and latest.vessel.area_cm2:
+            vessels_used = latest.vessels_used or 1
+            last_total_area = latest.vessel.area_cm2 * vessels_used
+
         culture_payload = {
             "id": culture.id,
             "name": culture.name,
@@ -534,7 +662,10 @@ def index():
             "latest_vessel_name": latest_vessel_name,
             "default_slurry_volume_ml": default_slurry_volume_ml,
             "pre_split_confluence_percent": culture.pre_split_confluence_percent,
-            "days_since_last_passage": days_since_last_passage,
+            "days_since_last_passage": days_since_last_activity,
+            "myco_status": culture.current_myco_status_value,
+            "myco_status_locked": culture.myco_status_locked,
+            "last_total_area_cm2": last_total_area,
         }
         bulk_culture_payload.append(culture_payload)
 
@@ -550,6 +681,10 @@ def index():
         for vessel in vessels
     ]
 
+    for culture in ended_cultures:
+        culture.current_myco_status_value = culture.current_myco_status
+        culture.current_myco_status_label = display_myco_status(culture.current_myco_status_value)
+
     return render_template(
         "index.html",
         active_cultures=active_cultures,
@@ -563,6 +698,8 @@ def index():
         today=today_value,
         passage_warning_threshold=passage_warning_threshold,
         stale_cutoff_days=stale_cutoff_days,
+        label_library=label_library,
+        myco_status_choices=MYCO_STATUS_CHOICES,
     )
 
 
@@ -582,6 +719,60 @@ def update_passage_threshold():
         return redirect(url_for("index"))
     Setting.set_value(PASSAGE_WARNING_SETTING, str(numeric))
     flash(f"Passage reminder threshold updated to P{numeric}.", "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/settings/stale-cutoff", methods=["POST"])
+def update_stale_cutoff():
+    raw_value = request.form.get("stale_cutoff_days")
+    if raw_value in (None, ""):
+        flash("Enter the number of days before a culture is considered stale.", "error")
+        return redirect(url_for("index"))
+    try:
+        numeric = int(raw_value)
+    except (TypeError, ValueError):
+        flash("Enter a whole number of days (e.g. 4).", "error")
+        return redirect(url_for("index"))
+    if numeric < 0:
+        flash("Days cannot be negative.", "error")
+        return redirect(url_for("index"))
+    Setting.set_value(STALE_WARNING_SETTING, str(numeric))
+    if numeric == 1:
+        message = "Stale reminder updates after 1 day of inactivity."
+    else:
+        message = f"Stale reminder updates after {numeric} days of inactivity."
+    flash(message, "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/labels", methods=["POST"])
+def add_label():
+    label_text = (request.form.get("label_text") or "").strip()
+    if not label_text:
+        flash("Enter label text before saving.", "error")
+        return redirect(url_for("index"))
+    if not label_text.isascii():
+        flash("Use ASCII characters for label text.", "error")
+        return redirect(url_for("index"))
+    labels = get_label_library()
+    labels.append(label_text)
+    save_label_library(labels)
+    flash("Label added to the library.", "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/labels/<int:label_index>/delete", methods=["POST"])
+def delete_label(label_index: int):
+    labels = get_label_library()
+    if label_index < 0 or label_index >= len(labels):
+        flash("Selected label could not be found.", "error")
+        return redirect(url_for("index"))
+    removed = labels.pop(label_index)
+    save_label_library(labels)
+    if removed:
+        flash(f"Removed label '{removed}'.", "info")
+    else:
+        flash("Label removed.", "info")
     return redirect(url_for("index"))
 
 
@@ -625,6 +816,7 @@ def create_culture():
         name=name,
         cell_line=cell_line,
         start_date=start_date,
+        last_handled_on=start_date,
         notes=culture_notes,
     )
     db.session.add(culture)
@@ -632,6 +824,7 @@ def create_culture():
 
     initial_media = request.form.get("initial_media")
     initial_cell_concentration = parse_numeric(request.form.get("initial_cell_concentration"))
+    initial_seeded_cells = parse_numeric(request.form.get("initial_seeded_cells"))
     initial_doubling_time = parse_numeric(request.form.get("initial_doubling_time"))
     initial_notes = request.form.get("initial_notes")
 
@@ -643,6 +836,9 @@ def create_culture():
         cell_concentration=initial_cell_concentration,
         doubling_time_hours=initial_doubling_time,
         notes=initial_notes,
+        seeded_cells=initial_seeded_cells,
+        myco_status=MYCO_STATUS_UNTESTED,
+        myco_status_locked=False,
     )
     db.session.add(passage)
     db.session.commit()
@@ -652,6 +848,82 @@ def create_culture():
         "success",
     )
     return redirect(url_for("view_culture", culture_id=culture.id))
+
+
+@app.route("/culture/<int:culture_id>/clone", methods=["POST"])
+def clone_culture(culture_id: int):
+    culture = Culture.query.get_or_404(culture_id)
+    latest = culture.latest_passage
+
+    if latest is None:
+        return jsonify({"error": "Clone requires at least one recorded passage."}), 400
+
+    payload = request.get_json(silent=True)
+    if not payload:
+        payload = request.form.to_dict(flat=True)
+
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Provide a name for the cloned culture."}), 400
+
+    vessel_id_raw = payload.get("vessel_id")
+    if vessel_id_raw in (None, ""):
+        return jsonify({"error": "Select a vessel for the cloned culture."}), 400
+    try:
+        vessel_id = int(vessel_id_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Select a valid vessel for the cloned culture."}), 400
+
+    vessel = Vessel.query.get(vessel_id)
+    if vessel is None:
+        return jsonify({"error": "The selected vessel could not be found."}), 400
+
+    seeded_raw = payload.get("seeded_cells")
+    seeded_cells = parse_numeric(seeded_raw)
+    if seeded_cells is None or seeded_cells <= 0:
+        return jsonify({"error": "Enter the total cells seeded for the cloned culture."}), 400
+
+    today_value = date.today()
+
+    new_culture = Culture(
+        name=name,
+        cell_line=culture.cell_line,
+        start_date=today_value,
+        last_handled_on=today_value,
+        notes=culture.notes,
+    )
+    db.session.add(new_culture)
+    db.session.flush()
+
+    new_passage = Passage(
+        culture=new_culture,
+        passage_number=latest.passage_number,
+        date=today_value,
+        media=latest.media,
+        cell_concentration=latest.cell_concentration,
+        doubling_time_hours=latest.doubling_time_hours,
+        notes=latest.notes,
+        vessel=vessel,
+        vessels_used=1,
+        seeded_cells=seeded_cells,
+        myco_status=MYCO_STATUS_UNTESTED,
+        myco_status_locked=False,
+    )
+    db.session.add(new_passage)
+    db.session.commit()
+
+    flash(
+        f"Cloned culture '{culture.name}' as '{new_culture.name}'.",
+        "success",
+    )
+
+    return jsonify(
+        {
+            "success": True,
+            "culture_id": new_culture.id,
+            "redirect_url": url_for("view_culture", culture_id=new_culture.id),
+        }
+    )
 
 
 @app.route("/culture/<int:culture_id>")
@@ -685,6 +957,27 @@ def view_culture(culture_id: int):
     if default_viability is None and last_passage and last_passage.measured_viability_percent is not None:
         default_viability = last_passage.measured_viability_percent
 
+    clone_default_vessel_id = default_vessel_id
+    if last_passage and last_passage.vessel_id:
+        clone_default_vessel_id = last_passage.vessel_id
+    clone_default_seeded = (
+        last_passage.seeded_cells
+        if last_passage and last_passage.seeded_cells is not None
+        else None
+    )
+    last_total_area = None
+    if last_passage and last_passage.vessel and last_passage.vessel.area_cm2:
+        vessels_used = last_passage.vessels_used or 1
+        last_total_area = last_passage.vessel.area_cm2 * vessels_used
+    clone_vessel_payload = [
+        {"id": vessel.id, "name": vessel.name, "area_cm2": vessel.area_cm2}
+        for vessel in vessels
+    ]
+
+    culture.current_myco_status_value = culture.current_myco_status
+    culture.current_myco_status_label = display_myco_status(culture.current_myco_status_value)
+    culture.myco_status_locked = bool(last_passage and last_passage.myco_status_locked)
+
     return render_template(
         "culture_detail.html",
         culture=culture,
@@ -693,9 +986,15 @@ def view_culture(culture_id: int):
         default_cell_concentration=default_cell_concentration,
         default_vessel_id=default_vessel_id,
         default_measured_yield_display=default_measured_yield_display,
+        default_measured_yield_millions=default_measured_yield_millions,
         default_pre_split_confluence=culture.pre_split_confluence_percent,
         default_viability_percent=default_viability,
         today=date.today(),
+        myco_status_choices=MYCO_STATUS_CHOICES,
+        clone_vessel_payload=clone_vessel_payload,
+        clone_default_vessel_id=clone_default_vessel_id,
+        clone_default_seeded=clone_default_seeded,
+        last_total_area=last_total_area,
     )
 
 
@@ -792,6 +1091,13 @@ def add_passage(culture_id: int):
         else:
             viability_for_new = measured_viability
 
+    myco_status = request.form.get("myco_status")
+    valid_statuses = {choice[0] for choice in MYCO_STATUS_CHOICES}
+    if not myco_status or myco_status not in valid_statuses:
+        myco_status = MYCO_STATUS_UNTESTED
+    else:
+        myco_status = normalize_myco_status(myco_status)
+
     passage = Passage(
         culture=culture,
         passage_number=culture.next_passage_number,
@@ -806,10 +1112,13 @@ def add_passage(culture_id: int):
         measured_yield_cells=measured_yield_for_new,
         pre_split_confluence_percent=pre_split_for_new,
         measured_viability_percent=viability_for_new,
+        myco_status=myco_status,
+        myco_status_locked=False,
     )
     db.session.add(passage)
 
     culture.pre_split_confluence_percent = None
+    culture.last_handled_on = passage_date
     db.session.commit()
 
     flash(
@@ -1501,6 +1810,13 @@ def create_bulk_passages():
             else:
                 viability_for_new = measured_viability
 
+        myco_status_value = entry.get("myco_status")
+        valid_statuses = {choice[0] for choice in MYCO_STATUS_CHOICES}
+        if myco_status_value not in valid_statuses:
+            myco_status_value = MYCO_STATUS_UNTESTED
+        else:
+            myco_status_value = normalize_myco_status(myco_status_value)
+
         passage = Passage(
             culture=culture,
             passage_number=passage_number,
@@ -1515,10 +1831,13 @@ def create_bulk_passages():
             measured_yield_cells=measured_yield_for_new,
             pre_split_confluence_percent=pre_split_for_new,
             measured_viability_percent=viability_for_new,
+            myco_status=myco_status_value,
+            myco_status_locked=False,
         )
         db.session.add(passage)
 
         culture.pre_split_confluence_percent = None
+        culture.last_handled_on = passage_date
 
         created_passages.append(
             {
@@ -1539,6 +1858,7 @@ def create_bulk_passages():
                 else None,
                 "measured_viability_percent": measured_viability,
                 "pre_split_confluence_percent": pre_split_confluence_value,
+                "myco_status": myco_status_value,
             }
         )
 
@@ -1583,6 +1903,7 @@ def export_cultures():
             "Seeded cells",
             "Measured yield (cells)",
             "Measured viability (%)",
+            "Myco status",
             "End reason",
         ]
     )
@@ -1615,6 +1936,8 @@ def export_cultures():
         if latest and latest.measured_viability_percent is not None:
             viability_display = f"{latest.measured_viability_percent}"
 
+        myco_display = display_myco_status(latest.myco_status) if latest else display_myco_status(None)
+
         writer.writerow(
             [
                 culture.name,
@@ -1632,6 +1955,7 @@ def export_cultures():
                 seeded_cells_value,
                 measured_yield_display,
                 viability_display,
+                myco_display,
                 culture.end_reason or "",
             ]
         )
@@ -1710,9 +2034,42 @@ def refresh_media(culture_id: int):
         else:
             culture.notes = entry
 
+    culture.last_handled_on = date.today()
     db.session.commit()
-    flash(f"Logged media refresh for '{culture.name}'.", "success")
-    return redirect(url_for("view_culture", culture_id=culture.id))
+    flash("Media refreshed.", "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/culture/<int:culture_id>/myco", methods=["POST"])
+def update_myco_status(culture_id: int):
+    culture = Culture.query.get_or_404(culture_id)
+    status = request.form.get("myco_status") or ""
+    valid_statuses = {choice[0] for choice in MYCO_STATUS_CHOICES}
+
+    if status not in valid_statuses:
+        db.session.rollback()
+        flash("Select a valid Myco status before saving.", "error")
+    else:
+        latest = culture.latest_passage
+        if latest is None:
+            db.session.rollback()
+            flash("Create at least one passage before setting Myco status.", "error")
+        elif latest.myco_status_locked:
+            db.session.rollback()
+            flash("Myco status is locked until the next passage is logged.", "error")
+        else:
+            latest.myco_status = status
+            latest.myco_status_locked = True
+            db.session.commit()
+            flash(
+                f"Updated Myco status for '{culture.name}' to {display_myco_status(status)}.",
+                "success",
+            )
+
+    redirect_target = request.form.get("redirect")
+    if redirect_target:
+        return redirect(redirect_target)
+    return redirect(url_for("index"))
 
 
 @app.route("/culture/<int:culture_id>/delete", methods=["POST"])
@@ -1790,6 +2147,11 @@ def edit_passage(passage_id: int):
                     flash("Enter a valid confluency percentage (0–100).", "error")
                     return redirect(url_for("edit_passage", passage_id=passage.id))
 
+        myco_status = request.form.get("myco_status") or ""
+        valid_statuses = {choice[0] for choice in MYCO_STATUS_CHOICES}
+        if myco_status in valid_statuses:
+            passage.myco_status = myco_status
+
         db.session.commit()
         flash(
             f"Updated passage P{passage.passage_number} for culture '{culture.name}'.",
@@ -1804,6 +2166,7 @@ def edit_passage(passage_id: int):
         culture=culture,
         vessels=vessels,
         today=date.today(),
+        myco_status_choices=MYCO_STATUS_CHOICES,
     )
 
 

@@ -88,6 +88,16 @@
               />
             </label>
             <label>
+              <span>Myco status</span>
+              <select name="myco_status">
+                {% for value, label in myco_status_choices %}
+                  <option value="{{ value }}" {% if passage.myco_status == value or (passage.myco_status is none and value == 'myco_untested') %}selected{% endif %}>
+                    {{ label }}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
               <span>Pre-split confluence (%)</span>
               <input
                 type="number"
