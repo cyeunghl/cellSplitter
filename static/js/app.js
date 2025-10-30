@@ -1839,6 +1839,93 @@ function attachCulturePrintHandlers() {
 }
 
 
+function attachCreateCulturePrefill() {
+  const form = document.querySelector('[data-create-culture-form]');
+  if (!form) {
+    return;
+  }
+
+  const select = form.querySelector('[data-prefill-select]');
+  if (!select) {
+    return;
+  }
+
+  const prefillData = parseJSONScript('create-culture-prefill-data');
+  if (!Array.isArray(prefillData) || !prefillData.length) {
+    return;
+  }
+
+  const dataMap = new Map();
+  prefillData.forEach((entry) => {
+    if (!entry || entry.id === undefined || entry.id === null) {
+      return;
+    }
+    const key = String(entry.id);
+    if (!dataMap.has(key)) {
+      dataMap.set(key, entry);
+    }
+  });
+
+  if (!dataMap.size) {
+    return;
+  }
+
+  const vesselSelect = form.querySelector('[name="initial_vessel_id"]');
+  const concentrationField = form.querySelector('[name="initial_cell_concentration"]');
+  const seededField = form.querySelector('[name="initial_seeded_cells"]');
+  const viabilityField = form.querySelector('[name="initial_viability_percent"]');
+
+  select.addEventListener('change', () => {
+    const selectedValue = select.value;
+    if (!selectedValue) {
+      return;
+    }
+    const entry = dataMap.get(selectedValue);
+    if (!entry) {
+      return;
+    }
+
+    if (vesselSelect) {
+      if (entry.default_vessel_id != null) {
+        const vesselId = String(entry.default_vessel_id);
+        vesselSelect.value = vesselId;
+        if (vesselSelect.value !== vesselId) {
+          vesselSelect.value = '';
+        }
+      } else {
+        vesselSelect.value = '';
+      }
+    }
+
+    if (concentrationField) {
+      if (entry.default_cell_concentration != null) {
+        concentrationField.value = String(entry.default_cell_concentration);
+      } else {
+        concentrationField.value = '';
+      }
+    }
+
+    if (seededField) {
+      if (entry.latest_seeded_display) {
+        seededField.value = entry.latest_seeded_display;
+      } else if (entry.latest_seeded_cells != null) {
+        seededField.value = String(entry.latest_seeded_cells);
+      } else {
+        seededField.value = '';
+      }
+    }
+
+    if (viabilityField) {
+      if (entry.measured_viability_percent != null) {
+        viabilityField.value = String(entry.measured_viability_percent);
+      } else {
+        viabilityField.value = '';
+      }
+    }
+  });
+}
+
+
 function initBulkProcessing() {
   const bulkCard = document.querySelector('[data-bulk-card]');
   if (!bulkCard) {
@@ -2658,8 +2745,12 @@ function initBulkProcessing() {
       return '';
     }
     const row = plannerRowsById.get(cultureId);
-    const lines = [];
-    lines.push(`Culture: ${culture.name || `Culture ${cultureId}`}`);
+    const parts = [];
+    const cultureName = culture.name || `Culture ${cultureId}`;
+    if (cultureName) {
+      parts.push(cultureName);
+    }
+
     let labelDate = today;
     if (row) {
       labelDate =
@@ -2667,7 +2758,9 @@ function initBulkProcessing() {
     } else if (culture.latest_passage_date) {
       labelDate = culture.latest_passage_date;
     }
-    lines.push(`Date: ${labelDate}`);
+    if (labelDate) {
+      parts.push(labelDate);
+    }
 
     let passageNumber = culture.next_passage_number;
     if (row && row.dataset.savedPassageNumber) {
@@ -2679,10 +2772,10 @@ function initBulkProcessing() {
       const normalized = String(passageNumber).startsWith('P')
         ? String(passageNumber)
         : `P${passageNumber}`;
-      lines.push(`Passage: ${normalized}`);
+      parts.push(normalized);
     }
 
-    let cellsDisplay = '—';
+    let cellsDisplay = '';
     if (row) {
       if (row.dataset.savedSeededDisplay) {
         cellsDisplay = row.dataset.savedSeededDisplay;
@@ -2703,8 +2796,11 @@ function initBulkProcessing() {
     } else if (culture.latest_seeded_display) {
       cellsDisplay = culture.latest_seeded_display;
     }
-    lines.push(`Cells seeded: ${cellsDisplay}`);
-    return lines.join('\n');
+    if (cellsDisplay && cellsDisplay !== '—') {
+      parts.push(`${cellsDisplay} cells`);
+    }
+
+    return parts.join(' ').trim();
   };
 
   const renderLabelTable = (ids) => {
@@ -2721,7 +2817,6 @@ function initBulkProcessing() {
     }
 
     const lines = [];
-    const flattenedLines = [];
     const tableWrapper = document.createElement('div');
     tableWrapper.className = 'table-wrapper';
     const table = document.createElement('table');
@@ -2738,7 +2833,6 @@ function initBulkProcessing() {
         return;
       }
       lines.push(labelText);
-      flattenedLines.push(labelText.replace(/\s*\n\s*/g, ' '));
       const row = tbody.insertRow();
       const cultureCell = row.insertCell();
       const culture = cultureMap.get(id);
@@ -2772,9 +2866,9 @@ function initBulkProcessing() {
     const copyAllButton = document.createElement('button');
     copyAllButton.type = 'button';
     copyAllButton.className = 'button secondary';
-    copyAllButton.textContent = 'Copy all labels';
+    copyAllButton.textContent = 'Copy all';
     copyAllButton.addEventListener('click', async () => {
-      await copyPlainText(flattenedLines.join('; '));
+      await copyPlainText(lines.join('\n'));
     });
     labelOutput.appendChild(copyAllButton);
     labelOutput.hidden = false;
@@ -3688,6 +3782,7 @@ function initBulkProcessing() {
 
 
 document.addEventListener('DOMContentLoaded', () => {
+  attachCreateCulturePrefill();
   attachHarvestTabs();
   attachMediaCheckboxHandler();
   attachSeedingLabelCopyHandler();
