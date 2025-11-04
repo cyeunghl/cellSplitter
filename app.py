@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import math
+import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -22,9 +23,17 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
 
 app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///cellsplitter.db"
+
+# Use /tmp for database on Vercel (serverless environment)
+# Otherwise use instance/ directory for local development
+if os.environ.get('VERCEL') or os.environ.get('VERCEL_ENV'):
+    db_path = '/tmp/cellsplitter.db'
+    os.makedirs('/tmp', exist_ok=True)
+    app.config["SQLALCHEMY_DATABASE_URI"] = f'sqlite:///{db_path}'
+else:
+    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///cellsplitter.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SECRET_KEY"] = "cellsplitter-secret-key"
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "cellsplitter-secret-key")
 
 db = SQLAlchemy(app)
 
