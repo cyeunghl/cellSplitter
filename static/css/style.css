@@ -157,7 +157,7 @@ a:hover {
 
 .card-header.with-actions {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
@@ -379,10 +379,17 @@ textarea {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.5rem;
+  justify-content: center;
 }
 
 .myco-status-wrapper .myco-status-form {
   margin: 0;
+  display: flex;
+  align-items: center;
+}
+
+.card-header.with-actions .myco-status-wrapper {
+  justify-content: center;
 }
 
 .myco-status-form .button.small {
@@ -629,6 +636,24 @@ label.checkbox input[type='checkbox'] {
   font-weight: 600;
 }
 
+.bulk-card {
+  margin-left: -1.5rem;
+  margin-right: -1.5rem;
+  width: calc(100% + 3rem);
+  max-width: none;
+}
+
+@media (min-width: 1200px) {
+  .bulk-card {
+    margin-left: calc(-1 * (50vw - 550px));
+    margin-right: calc(-1 * (50vw - 550px));
+    width: calc(100vw - 4rem);
+    max-width: calc(100vw - 4rem);
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
 .bulk-card .card-body {
   display: flex;
   flex-direction: column;
@@ -711,6 +736,16 @@ label.checkbox input[type='checkbox'] {
   margin-top: 0.35rem;
 }
 
+.bulk-harvest-table td {
+  padding: 0.5rem 0.75rem;
+}
+
+.bulk-harvest-table input {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+}
+
 .bulk-cell .field-stack {
   display: flex;
   flex-direction: column;
@@ -790,8 +825,11 @@ label.checkbox input[type='checkbox'] {
 
 .table th,
 .table td {
-  border-bottom: 1px solid var(--border);
-  padding: 0.65rem 0.5rem;
+  border-bottom: 1px solid #e0e0e0;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
   vertical-align: top;
 }
 
@@ -816,6 +854,17 @@ label.checkbox input[type='checkbox'] {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: nowrap;
+}
+
+.table td .myco-status-wrapper {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+}
+
+.table td .myco-status-form {
+  align-items: center;
 }
 
 .table td.actions > * {
