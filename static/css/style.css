@@ -831,6 +831,7 @@ label.checkbox input[type='checkbox'] {
   padding-left: 0.5rem;
   padding-right: 0.5rem;
   vertical-align: top;
+  min-height: 3.5rem;
 }
 
 .table th {
@@ -860,7 +861,7 @@ label.checkbox input[type='checkbox'] {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: 100%;
+  min-height: 3.5rem;
 }
 
 .table td .myco-status-form {
