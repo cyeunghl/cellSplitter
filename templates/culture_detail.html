@@ -391,7 +391,7 @@
             </label>
             <label>
               <input type="radio" name="operation" value="seed_split" />
-              <span>Seed &amp; split</span>
+              <span>Seed and split</span>
             </label>
           </div>
           <section class="planner-subsection" data-seed-section hidden>
@@ -474,6 +474,9 @@
               <span>Purpose</span>
               <input type="text" name="seed_purpose" placeholder="e.g. Myco testing" />
             </label>
+            <div class="form-actions">
+              <button class="button secondary small" type="button" data-calc-seed>Calculate seed</button>
+            </div>
             <p class="form-hint">Volumes are entered in mL. Results switch to uL when below 0.01 mL.</p>
           </section>
           <section class="planner-subsection" data-remainder-options>
@@ -632,6 +635,7 @@
           </section>
           <div class="form-actions">
             <button class="button primary" type="submit" data-seeding-submit>Calculate plan</button>
+            <button class="button secondary" type="button" data-seeding-save hidden>Save passage</button>
             <button class="button ghost" type="button" data-copy-seeding-label>Copy label</button>
           </div>
         </form>
