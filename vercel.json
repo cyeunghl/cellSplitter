@@ -1,10 +1,7 @@
 {
   "version": 2,
   "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python"
-    }
+    { "src": "api/index.py", "use": "@vercel/python" }
   ],
   "routes": [
     {
@@ -14,9 +11,6 @@
         "Cache-Control": "public, max-age=31536000, immutable"
       }
     },
-    {
-      "src": "/(.*)",
-      "dest": "/api/index.py"
-    }
+    { "src": "/(.*)", "dest": "/api/index.py" }
   ]
 }
