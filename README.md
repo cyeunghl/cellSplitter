@@ -7,30 +7,20 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 ## Features
 
 - 📓 **Culture journal** – Record each passage with media, cell concentrations, doubling
-  times, and notes.
-- 🔁 **Auto-numbered passages** – Choose the starting passage (defaults to P1) and let the
+  times, and notes
+- 🔁 **Auto-numbered passages** – Choose the starting passage (default = P1) and let the
   app increment numbers automatically (P1, P2, …).
 - 🧪 **Media reuse** – Pull forward the previous passage's media with a single checkbox.
-- 📈 **Seeding planner** – Split the culture or run a combined seed-and-split workflow:
-  calculate required cells and volumes toward a target confluency or dilute a portion to a
-  desired concentration and volume, then push the plan straight into the passage log.
-- 📊 **Harvest tracking** – Record measured harvest concentrations, volumes, and
-  viability so the seeding planner and passage form always start with the latest
-  suspension data.
-- 🌱 **Pre-split confluency** – Capture the observed confluence before harvesting so the
-  next passage form and history both reflect how dense the culture was.
-- 🧫 **Bulk harvest & passages** – Select multiple cultures to capture confluency,
-  harvest measurements, plan seeding, and commit new passages (plus labels) in one
-  workflow.
+- 📈 **Seeding planner** – Calculate required cell numbers and seeding volumes based on
+  target confluency, time to split, vessel size, and doubling time, or plan dilutions to
+  reach a specific concentration and total volume, then push the plan directly into the
+  passage log.
+- 📊 **Harvest tracking** – Record measured harvest concentrations and volumes so the
+  seeding planner and passage form always start with the latest data.
 - 📁 **Archive cultures** – Mark cultures as ended to move them into an archived list
   while preserving full passage history, or permanently delete ended cultures when
   they are no longer needed.
-- 🔔 **Culture reminders** – Highlight stale cultures and configure reminder thresholds for
-  both passage numbers and days since the last handling.
-- ♻️ **Media refresh logging** – Append a dated “media refreshed” note to the latest
-  passage with a single click.
-- ✏️ **Edit or remove passages** – Correct typos or delete errant entries without touching
-  the surrounding history.
+- ✏️ **Edit or remove passages** – Correct typos or delete errant entries.
 - 🧬 **Doubling-time library** – Preloaded database of common cell lines with editable
   doubling-time ranges and references.
 - 🧮 **Tissue culture vessel data** – Uses surface areas and cell capacities curated from
@@ -38,15 +28,7 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 - 🏷️ **One-click labels** – Generate printer-friendly label text from the seeding planner
   and copy it straight to the clipboard.
 - 🧾 **Myco label run** – Grab a dashboard table of today’s labels for every active
-  culture—preformatted with the date and CY initials for quick mycoplasma testing.
-- 🗂️ **Label library** – Maintain a reusable collection of clipboard-ready label snippets
-  and copy or prune them in bulk.
-- 🔀 **Clone cultures** – Spin up a new culture from the latest passage of an active
-  line, keeping the media and notes intact while choosing a new name, vessel, and seeded
-  cell count from a dialog.
-- 🧼 **Mycoplasma status** – Update each culture’s current Myco state (untested, tested,
-  free, or contaminated) right from the dashboard or passage history—contaminated
-  cultures are highlighted automatically.
+  culture—preformatted with the date and initials for quick mycoplasma testing.
 - 📤 **CSV export** – Download an overview of all active cultures—including the most
   recent passage details—for external reporting.
 
@@ -74,8 +56,7 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 ## Usage notes
 
 - When creating a culture, you can set the initial passage number (defaults to P1) and
-  record starting media, doubling times, plus either a starting concentration or the
-  total cells seeded alongside it.
+  record any starting media, doubling-time, or concentration values alongside it.
 - The seeding planner defaults to the average doubling time of the selected cell line but
   lets you override it for passage-specific behavior. Switch to *Concentration to dilute*
   mode to compute how much cell slurry and media are needed to reach a desired final
@@ -83,43 +64,21 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 - Cultures default to a T75 flask in the target confluency planner—swap the vessel if you
   are planning for a different format.
 - Log the measured suspension concentration and total harvest volume in the culture detail
-- Record pre-split confluency and viability just before harvest—the values auto-fill the
-  passage form and are saved with the resulting passage entry for future reference.
+  view before planning to automatically feed that data into both the seeding planner and
+  passage forms.
 - Cell concentration inputs accept plain numbers as well as shorthand such as `300K`,
   `1.5e6`, or `2.3M` cells/mL.
 - Use the “Use previous passage media” checkbox when logging a passage to keep media
   formulations consistent.
 - Apply seeding planner results to the passage form—or save them outright—to capture
-  vessel usage, seeded cells, and planning notes without retyping. The passage form now
-  lives directly beneath the planner so the workflow stays in one place. Switch to
-  *Seed & split* mode when a portion of the harvest needs to be diluted separately
-  (e.g. for QC assays). Choosing *Seed everything* works even without a measured harvest;
-  the passage is saved with a “seeded everything” note so you can log the workflow
-  immediately and backfill numbers later if desired.
+  vessel usage, seeded cells, and planning notes without retyping.
 - Copy the generated label text after a seeding or dilution calculation to print or share
   culture labels with consistent naming.
 - Need a quick mycoplasma check run? Use the dashboard’s Myco test labels table to copy
-  culture labels and optionally append today’s date or extra text using the same controls
-  as the label library.
-- Use the Myco status dropdowns beside each culture (or the passage history header) to
-  flag cultures as Myco-free, tested, untested, or contaminated as you progress through
-  QC.
-- Click **Clone culture** in any journal header to branch a new culture from the latest
-  passage—rename it, pick a vessel, and set the seeded cells from a dialog without
-  re-entering media or notes.
-- Use the bulk processing card on the dashboard to record confluence, harvest measurements,
-  planner inputs, and passage saves for several cultures at once.
-- Adjust the passage reminder threshold and the “last handled” day cutoff from the
-  dashboard header to customize when warnings appear for long-running cultures.
-- Use the collapsible label library at the bottom of the dashboard to keep reagent or
-  workflow snippets handy—toggle today’s date on with a button, append optional freeform
-  text, select specific entries, or copy them all in one click.
+  today’s culture/date/CY label text in bulk.
 - End a culture when you are finished working with it to tuck it into the archived list;
   you can reactivate it later if needed, or permanently delete archived cultures from the
   dashboard when their records are no longer required.
-- Provide a reason when ending a culture to keep archival notes alongside the record, and
-  use the “Refresh media” action to append dated maintenance notes without logging a new
-  passage.
 - Need to fix a mistake? Open any passage entry to edit or delete it without affecting the
   rest of the log.
 - Use the export control atop the dashboard to download active cultures, ended cultures,
