@@ -25,7 +25,7 @@ from sqlalchemy import inspect, text
 import bcrypt
 
 # Use absolute paths for static and template folders to work in Vercel serverless
-_app_root = Path(__file__).parent
+_app_root = Path(__file__).resolve().parent
 app = Flask(
     __name__,
     static_folder=str(_app_root / 'static'),
@@ -307,7 +307,7 @@ class Setting(db.Model):
 
 
 def load_json_data(filename: str) -> list[dict]:
-    data_path = Path(__file__).parent / "data" / filename
+    data_path = _app_root / "data" / filename
     with data_path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
