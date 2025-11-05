@@ -1,11 +1,16 @@
-from pathlib import Path
-from flask import Flask
+"""
+Vercel serverless function entry point for Flask app
+"""
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-BASE_DIR = Path(__file__).resolve().parent
-PUBLIC_DIR = BASE_DIR / "public"
+# Set Vercel environment flag before importing app
+# This allows app.py to detect Vercel environment and use /tmp for database
+os.environ['VERCEL'] = '1'
 
-app = Flask(
-    __name__,
-    static_folder=str(PUBLIC_DIR),
-    static_url_path=""
-)
+# Import app (database configuration happens in app.py based on VERCEL env var)
+from app import app
+
+# Vercel Python runtime expects the Flask app to be exported directly
+# The app will be called as a WSGI application
