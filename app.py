@@ -24,7 +24,14 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
 import bcrypt
 
-app = Flask(__name__)
+# Use absolute paths for static and template folders to work in Vercel serverless
+_app_root = Path(__file__).parent
+app = Flask(
+    __name__,
+    static_folder=str(_app_root / 'static'),
+    static_url_path='/static',
+    template_folder=str(_app_root / 'templates')
+)
 
 # Database configuration: Support Turso (libSQL) or local SQLite
 database_url = os.environ.get('DATABASE_URL')
