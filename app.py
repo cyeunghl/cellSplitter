@@ -607,7 +607,7 @@ def save_label_library(labels: list[str]) -> None:
 def login():
     """Login route"""
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('index'))
     
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
@@ -621,7 +621,7 @@ def login():
         if user and user.check_password(password):
             login_user(user, remember=True)
             next_page = request.args.get('next')
-            return redirect(next_page or url_for('dashboard'))
+            return redirect(next_page or url_for('index'))
         else:
             flash("Invalid email or password.", "error")
     
@@ -632,7 +632,7 @@ def login():
 def signup():
     """Signup route"""
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('index'))
     
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
@@ -715,6 +715,7 @@ def dashboard():
 
 
 @app.route("/")
+@login_required
 def index():
     active_cultures = (
         Culture.query.filter(Culture.ended_on.is_(None))
