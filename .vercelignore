@@ -1,3 +1,4 @@
+# Python cache and virtual environments
 __pycache__/
 *.pyc
 *.pyo
@@ -12,6 +13,9 @@ instance/
 venv/
 ENV/
 env/
-.DS_Store
-cellSplitter/
 
+# macOS junk
+.DS_Store
+
+# ✅ Do NOT ignore your project folder itself
+# cellSplitter/  ← REMOVE THIS LINE
