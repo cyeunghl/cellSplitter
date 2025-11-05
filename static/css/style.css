@@ -73,6 +73,14 @@ a:hover {
   font-size: 1.4rem;
   font-weight: 700;
   color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.brand-icon {
+  font-size: 1.5rem;
+  line-height: 1;
 }
 
 .tagline {
