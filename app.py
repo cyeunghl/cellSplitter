@@ -19,23 +19,49 @@ from flask import (
     request,
     url_for,
 )
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
+import bcrypt
 
 app = Flask(__name__)
 
-# Use /tmp for database on Vercel (serverless environment)
-# Otherwise use instance/ directory for local development
-if os.environ.get('VERCEL') or os.environ.get('VERCEL_ENV'):
+# Database configuration: Support Turso (libSQL) or local SQLite
+database_url = os.environ.get('DATABASE_URL')
+if database_url:
+    # Turso/libSQL connection string (libsql:// or turso://)
+    # For Turso, use the connection string directly
+    if database_url.startswith('libsql://') or database_url.startswith('turso://'):
+        # Convert Turso URL to SQLAlchemy format if needed
+        # Turso uses libSQL which is SQLite-compatible
+        # For now, we'll use the URL as-is (may need libsql-client for actual connection)
+        app.config["SQLALCHEMY_DATABASE_URI"] = database_url.replace('libsql://', 'sqlite:///').replace('turso://', 'sqlite:///')
+    else:
+        # Standard SQLite URL format
+        app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+elif os.environ.get('VERCEL') or os.environ.get('VERCEL_ENV'):
+    # Vercel serverless environment: use /tmp
     db_path = '/tmp/cellsplitter.db'
     os.makedirs('/tmp', exist_ok=True)
     app.config["SQLALCHEMY_DATABASE_URI"] = f'sqlite:///{db_path}'
 else:
+    # Local development: use instance directory
     app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///cellsplitter.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "cellsplitter-secret-key")
 
 db = SQLAlchemy(app)
+
+# Initialize Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Please log in to access this page.'
+login_manager.login_message_category = 'info'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 
 HARVEST_VOLUME_HINTS: list[tuple[str, float]] = [
@@ -233,6 +259,22 @@ class Vessel(db.Model):
     area_cm2 = db.Column(db.Float, nullable=False)
     cells_at_100_confluency = db.Column(db.Float, nullable=False)
     notes = db.Column(db.Text, nullable=True)
+
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), nullable=False, unique=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def set_password(self, password: str) -> None:
+        """Hash and set password"""
+        salt = bcrypt.gensalt()
+        self.password_hash = bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+    def check_password(self, password: str) -> bool:
+        """Verify password"""
+        return bcrypt.checkpw(password.encode('utf-8'), self.password_hash.encode('utf-8'))
 
 
 class Setting(db.Model):
@@ -559,6 +601,117 @@ def get_label_library() -> list[str]:
 
 def save_label_library(labels: list[str]) -> None:
     Setting.set_value(LABEL_LIBRARY_SETTING, json.dumps(labels))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Login route"""
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        
+        if not email or not password:
+            flash("Please provide both email and password.", "error")
+            return render_template("login.html")
+        
+        user = User.query.filter_by(email=email).first()
+        if user and user.check_password(password):
+            login_user(user, remember=True)
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('dashboard'))
+        else:
+            flash("Invalid email or password.", "error")
+    
+    return render_template("login.html")
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    """Signup route"""
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        
+        if not email or not password:
+            flash("Please provide both email and password.", "error")
+            return render_template("signup.html")
+        
+        if password != confirm_password:
+            flash("Passwords do not match.", "error")
+            return render_template("signup.html")
+        
+        if len(password) < 8:
+            flash("Password must be at least 8 characters long.", "error")
+            return render_template("signup.html")
+        
+        # Check if user already exists
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            flash("An account with this email already exists.", "error")
+            return render_template("signup.html")
+        
+        # Create new user
+        user = User(email=email)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        
+        flash("Account created successfully! Please log in.", "success")
+        return redirect(url_for('login'))
+    
+    return render_template("signup.html")
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    """Logout route"""
+    logout_user()
+    flash("You have been logged out.", "info")
+    return redirect(url_for('index'))
+
+
+@app.route("/api/auth/register", methods=["POST"])
+def api_register():
+    """API endpoint for user registration"""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid request"}), 400
+    
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+    
+    if not email or not password:
+        return jsonify({"error": "Email and password are required"}), 400
+    
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters long"}), 400
+    
+    # Check if user already exists
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user:
+        return jsonify({"error": "An account with this email already exists"}), 400
+    
+    # Create new user
+    user = User(email=email)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    
+    return jsonify({"message": "User registered successfully", "user_id": user.id}), 201
+
+
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    """Dashboard route - protected, requires login"""
+    return redirect(url_for('index'))
 
 
 @app.route("/")

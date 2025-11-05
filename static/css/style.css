@@ -155,6 +155,25 @@ a:hover {
   padding: 1.25rem 1.5rem;
 }
 
+.card-body label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  text-align: left;
+  align-items: flex-start;
+}
+
+.card-body label span {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.card-body label input {
+  width: 100%;
+  text-align: left;
+}
+
 .card-header.with-actions {
   display: flex;
   align-items: center;
