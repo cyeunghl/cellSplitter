@@ -13,7 +13,10 @@
   <body>
     <header class="app-header">
       <div class="container header-inner">
-        <a class="brand" href="{{ url_for('index') }}">cellSplitter</a>
+        <a class="brand" href="{{ url_for('index') }}">
+          <span class="brand-icon">🧪</span>
+          <span>cellSplitter</span>
+        </a>
         <p class="tagline">Tissue culture journal &amp; seeding calculator</p>
         <nav style="margin-left: auto; display: flex; gap: 0.5rem; align-items: center;">
           {% if current_user.is_authenticated %}
