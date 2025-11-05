@@ -24,7 +24,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
 import bcrypt
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 
 # Database configuration: Support Turso (libSQL) or local SQLite
 database_url = os.environ.get('DATABASE_URL')
