@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Sign Up - cellSplitter{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 400px; margin: 2rem auto;">
+  <header class="card-header">
+    <h2>Sign Up</h2>
+    <p>Create a new account</p>
+  </header>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('signup') }}">
+      <label>
+        <span>Email</span>
+        <input type="email" name="email" required autocomplete="email" />
+      </label>
+      <label>
+        <span>Password</span>
+        <input type="password" name="password" required autocomplete="new-password" minlength="8" />
+        <p class="form-hint">Password must be at least 8 characters long</p>
+      </label>
+      <label>
+        <span>Confirm Password</span>
+        <input type="password" name="confirm_password" required autocomplete="new-password" minlength="8" />
+      </label>
+      <div class="form-actions">
+        <button class="button primary" type="submit">Sign Up</button>
+      </div>
+    </form>
+    <p style="margin-top: 1rem; text-align: center;">
+      Already have an account? <a href="{{ url_for('login') }}">Log in</a>
+    </p>
+  </div>
+</div>
+{% endblock %}
+

@@ -15,6 +15,17 @@
       <div class="container header-inner">
         <a class="brand" href="{{ url_for('index') }}">cellSplitter</a>
         <p class="tagline">Tissue culture journal &amp; seeding calculator</p>
+        <nav style="margin-left: auto; display: flex; gap: 0.5rem; align-items: center;">
+          {% if current_user.is_authenticated %}
+            <span style="color: var(--text-muted); font-size: 0.9rem;">{{ current_user.email }}</span>
+            <form method="post" action="{{ url_for('logout') }}" style="margin: 0;">
+              <button class="button ghost small" type="submit">Logout</button>
+            </form>
+          {% else %}
+            <a class="button ghost small" href="{{ url_for('login') }}">Login</a>
+            <a class="button secondary small" href="{{ url_for('signup') }}">Sign Up</a>
+          {% endif %}
+        </nav>
       </div>
     </header>
     <main class="container">
