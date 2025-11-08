@@ -9,19 +9,31 @@
     <p>Create a new account</p>
   </header>
   <div class="card-body">
-    <form method="post" action="{{ url_for('signup') }}">
+    <form class="card-body form" method="post" autocomplete="off">
       <label>
         <span>Email</span>
-        <input type="email" name="email" required autocomplete="email" />
+        <input type="email" name="email" required autofocus placeholder="your@email.com" autocomplete="off" spellcheck="false" />
       </label>
       <label>
         <span>Password</span>
-        <input type="password" name="password" required autocomplete="new-password" minlength="8" />
-        <p class="form-hint">Password must be at least 8 characters long</p>
+        <input type="password" name="password" required placeholder="Choose a password" autocomplete="off" />
       </label>
       <label>
-        <span>Confirm Password</span>
-        <input type="password" name="confirm_password" required autocomplete="new-password" minlength="8" />
+        <span>Confirm password</span>
+        <input type="password" name="password_confirm" required placeholder="Re-enter your password" autocomplete="off" />
+      </label>
+      <label>
+        <span>Security question</span>
+        <select name="security_question" required autocomplete="off">
+          <option value="">Select a security question</option>
+          <option value="What is your favorite color?">What is your favorite color?</option>
+          <option value="What is the name of your first pet?">What is the name of your first pet?</option>
+          <option value="What was the make of your first car?">What was the make of your first car?</option>
+        </select>
+      </label>
+      <label>
+        <span>Security answer</span>
+        <input type="text" name="security_answer" required placeholder="Your answer to the security question" autocomplete="off" spellcheck="false" />
       </label>
       <div class="form-actions">
         <button class="button primary" type="submit">Sign Up</button>

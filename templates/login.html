@@ -9,14 +9,14 @@
     <p>Sign in to your account</p>
   </header>
   <div class="card-body">
-    <form method="post" action="{{ url_for('login') }}">
+    <form class="card-body form" method="post" autocomplete="off">
       <label>
         <span>Email</span>
-        <input type="email" name="email" required autocomplete="email" />
+        <input type="email" name="email" required autofocus placeholder="your@email.com" autocomplete="off" spellcheck="false" />
       </label>
       <label>
         <span>Password</span>
-        <input type="password" name="password" required autocomplete="current-password" />
+        <input type="password" name="password" required placeholder="Enter your password" autocomplete="off" />
       </label>
       <div class="form-actions">
         <button class="button primary" type="submit">Login</button>

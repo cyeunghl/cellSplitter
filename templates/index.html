@@ -9,63 +9,63 @@
         <h1>Cultures</h1>
         <p>Track active cultures.</p>
       </div>
-      {% if active_cultures or ended_cultures %}
-        <div class="header-actions">
-          <form
-            class="inline-form threshold-form"
-            method="post"
-            action="{{ url_for('update_stale_cutoff') }}"
+      <div class="header-actions">
+        <form
+          class="inline-form threshold-form"
+          method="post"
+          action="{{ url_for('update_stale_cutoff') }}"
+        >
+          <input
+            type="number"
+            name="stale_cutoff_days"
+            value="{{ stale_cutoff_days }}"
+            min="0"
+            step="1"
+            aria-label="Days before stale reminder"
+            class="input-small"
+          />
+          <button class="button secondary" type="submit">Set stale days</button>
+        </form>
+        <form
+          class="inline-form threshold-form"
+          method="post"
+          action="{{ url_for('update_passage_threshold') }}"
+        >
+          <input
+            type="number"
+            name="passage_warning_threshold"
+            value="{{ passage_warning_threshold }}"
+            min="1"
+            step="1"
+            aria-label="Passage reminder threshold"
+            class="input-small"
+          />
+          <button
+            type="button"
+            class="button ghost info-button"
+            data-passage-info
+            aria-label="Learn about passage reminders"
           >
-            <input
-              type="number"
-              name="stale_cutoff_days"
-              value="{{ stale_cutoff_days }}"
-              min="0"
-              step="1"
-              aria-label="Days before stale reminder"
-              class="input-small"
-            />
-            <button class="button secondary" type="submit">Set stale days</button>
-          </form>
-          <form
-            class="inline-form threshold-form"
-            method="post"
-            action="{{ url_for('update_passage_threshold') }}"
+            ?
+          </button>
+          <button class="button secondary" type="submit">Set reminder</button>
+        </form>
+        <form class="inline-form" method="get" action="{{ url_for('export_cultures') }}">
+          <select
+            id="export-status"
+            name="status"
+            aria-label="Select which cultures to include in the export"
           >
-            <input
-              type="number"
-              name="passage_warning_threshold"
-              value="{{ passage_warning_threshold }}"
-              min="1"
-              step="1"
-              aria-label="Passage reminder threshold"
-              class="input-small"
-            />
-            <button
-              type="button"
-              class="button ghost info-button"
-              data-passage-info
-              aria-label="Learn about passage reminders"
-            >
-              ?
-            </button>
-            <button class="button secondary" type="submit">Set reminder</button>
-          </form>
-          <form class="inline-form" method="get" action="{{ url_for('export_cultures') }}">
-            <select
-              id="export-status"
-              name="status"
-              aria-label="Select which cultures to include in the export"
-            >
-              <option value="active">Active cultures</option>
-              <option value="ended">Ended cultures</option>
-              <option value="both">Active + ended</option>
-            </select>
-            <button class="button secondary" type="submit">Export CSV</button>
-          </form>
-        </div>
-      {% endif %}
+            <option value="active">Active cultures</option>
+            <option value="ended">Ended cultures</option>
+            <option value="both">Active + ended</option>
+          </select>
+          <button class="button secondary" type="submit">Export CSV</button>
+        </form>
+        <button class="button secondary" type="button" onclick="document.getElementById('import-form').classList.toggle('hidden')">Import Database</button>
+      </div>
     </div>
+    <form id="import-form" class="import-form hidden" method="post" action="{{ url_for('import_database') }}" enctype="multipart/form-data">
     {% if active_cultures %}
       <div class="table-wrapper">
         <table class="table cultures-table">
