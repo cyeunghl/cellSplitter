@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Edit cell line · cellSplitter{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb">
+    <a href="{{ url_for('index') }}">← Back to home</a>
+  </nav>
+
+  <section class="section">
+    <div class="section-header">
+      <h1>Edit cell line: {{ cell_line.name }}</h1>
+      <p>Update the details for this cell line.</p>
+    </div>
+    <div class="grid">
+      <article class="card">
+        <header class="card-header">
+          <h2>Cell line details</h2>
+        </header>
+        <form class="card-body form" method="post">
+          <label>
+            <span>Cell line name</span>
+            <input type="text" name="name" value="{{ cell_line.name }}" required placeholder="e.g. HCT116" />
+          </label>
+          <div class="field-grid">
+            <label>
+              <span>Doubling time (min, h)</span>
+              <input
+                type="text"
+                name="doubling_time_min_hours"
+                value="{{ cell_line.doubling_time_min_hours if cell_line.doubling_time_min_hours else '' }}"
+                placeholder="e.g. 22"
+              />
+            </label>
+            <label>
+              <span>Doubling time (max, h)</span>
+              <input
+                type="text"
+                name="doubling_time_max_hours"
+                value="{{ cell_line.doubling_time_max_hours if cell_line.doubling_time_max_hours else '' }}"
+                placeholder="e.g. 28"
+              />
+            </label>
+          </div>
+          <label>
+            <span>Reference URL</span>
+            <input
+              type="url"
+              name="reference_url"
+              value="{{ cell_line.reference_url if cell_line.reference_url else '' }}"
+              placeholder="https://"
+            />
+          </label>
+          <label>
+            <span>Notes</span>
+            <textarea name="notes" rows="2" placeholder="Source or assay details">{{ cell_line.notes or '' }}</textarea>
+          </label>
+          <div class="form-actions">
+            <button class="button primary" type="submit">Save changes</button>
+            <a class="button secondary" href="{{ url_for('index') }}">Cancel</a>
+          </div>
+        </form>
+      </article>
+    </div>
+  </section>
+{% endblock %}
+
