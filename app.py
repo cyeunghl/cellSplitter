@@ -5,6 +5,7 @@ import io
 import json
 import math
 import os
+import shutil
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -23,6 +24,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
 import bcrypt
+from werkzeug.utils import secure_filename
 
 # Use absolute paths for static and template folders to work in Vercel serverless
 _app_root = Path(__file__).resolve().parent
@@ -53,7 +55,10 @@ elif os.environ.get('VERCEL') or os.environ.get('VERCEL_ENV'):
     app.config["SQLALCHEMY_DATABASE_URI"] = f'sqlite:///{db_path}'
 else:
     # Local development: use instance directory
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///cellsplitter.db"
+    instance_path = _app_root / "instance"
+    instance_path.mkdir(exist_ok=True)
+    db_path = instance_path / "cellsplitter.db"
+    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "cellsplitter-secret-key")
 
@@ -68,7 +73,11 @@ login_manager.login_message_category = 'info'
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    try:
+        return User.query.get(int(user_id))
+    except Exception:
+        # If table doesn't exist or other error, return None
+        return None
 
 
 HARVEST_VOLUME_HINTS: list[tuple[str, float]] = [
@@ -185,6 +194,7 @@ class Culture(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     cell_line_id = db.Column(db.Integer, db.ForeignKey("cell_line.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     start_date = db.Column(db.Date, nullable=False, default=date.today)
     notes = db.Column(db.Text, nullable=True)
     ended_on = db.Column(db.Date, nullable=True)
@@ -194,7 +204,8 @@ class Culture(db.Model):
     pre_split_confluence_percent = db.Column(db.Integer, nullable=True)
     measured_viability_percent = db.Column(db.Integer, nullable=True)
     end_reason = db.Column(db.Text, nullable=True)
-
+    
+    user = db.relationship("User", backref="cultures")
     cell_line = db.relationship("CellLine", back_populates="cultures")
     passages = db.relationship(
         "Passage",
@@ -346,25 +357,91 @@ def bootstrap_vessels() -> None:
 
 
 def setup_database() -> None:
-    db.create_all()
-    bootstrap_cell_lines()
-    bootstrap_vessels()
-    ensure_columns()
-    if Setting.get_value(PASSAGE_WARNING_SETTING) is None:
-        Setting.set_value(PASSAGE_WARNING_SETTING, str(DEFAULT_PASSAGE_WARNING))
-    if Setting.get_value(STALE_WARNING_SETTING) is None:
-        Setting.set_value(STALE_WARNING_SETTING, str(DEFAULT_STALE_CUTOFF_DAYS))
-    if Setting.get_value(LABEL_LIBRARY_SETTING) is None:
-        Setting.set_value(LABEL_LIBRARY_SETTING, json.dumps(DEFAULT_LABEL_LIBRARY))
+    try:
+        print(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
+        # Create all tables first
+        print("Calling db.create_all()...")
+        db.create_all()
+        print("db.create_all() completed.")
+        
+        # Ensure all tables exist (in case db.create_all() didn't create them)
+        inspector = inspect(db.engine)
+        required_tables = ["user", "culture", "passage", "cell_line", "vessel", "setting"]
+        existing_tables = inspector.get_table_names()
+        print(f"Existing tables after db.create_all(): {existing_tables}")
+        missing_tables = [t for t in required_tables if t not in existing_tables]
+        
+        if missing_tables:
+            print(f"Missing tables: {missing_tables}")
+            # Explicitly create missing tables using raw SQL if needed
+            with db.engine.begin() as connection:
+                if "user" not in existing_tables:
+                    print("Creating user table explicitly...")
+                    try:
+                        connection.execute(text("""
+                            CREATE TABLE IF NOT EXISTS user (
+                                id INTEGER NOT NULL PRIMARY KEY,
+                                email VARCHAR(120) NOT NULL UNIQUE,
+                                password_hash VARCHAR(255) NOT NULL,
+                                created_at DATETIME NOT NULL
+                            )
+                        """))
+                        print("User table creation SQL executed.")
+                    except Exception as e:
+                        print(f"Error creating user table: {e}")
+                        raise
+                if "setting" not in existing_tables:
+                    print("Creating setting table explicitly...")
+                    connection.execute(text("""
+                        CREATE TABLE IF NOT EXISTS setting (
+                            key VARCHAR(64) NOT NULL PRIMARY KEY,
+                            value VARCHAR(255)
+                        )
+                    """))
+            # Re-inspect after creating tables
+            inspector = inspect(db.engine)
+            existing_tables = inspector.get_table_names()
+            print(f"Tables after explicit creation: {existing_tables}")
+            
+            # Verify user table exists
+            if "user" not in existing_tables:
+                raise RuntimeError("User table still does not exist after creation attempt!")
+        
+        bootstrap_cell_lines()
+        bootstrap_vessels()
+        ensure_columns()
+        
+        # Set default settings
+        if Setting.get_value(PASSAGE_WARNING_SETTING) is None:
+            Setting.set_value(PASSAGE_WARNING_SETTING, str(DEFAULT_PASSAGE_WARNING))
+        if Setting.get_value(STALE_WARNING_SETTING) is None:
+            Setting.set_value(STALE_WARNING_SETTING, str(DEFAULT_STALE_CUTOFF_DAYS))
+        if Setting.get_value(LABEL_LIBRARY_SETTING) is None:
+            Setting.set_value(LABEL_LIBRARY_SETTING, json.dumps(DEFAULT_LABEL_LIBRARY))
+    except Exception as e:
+        print(f"Error in setup_database: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 def ensure_columns() -> None:
     inspector = inspect(db.engine)
-
+    
+    def has_table(table_name: str) -> bool:
+        return table_name in inspector.get_table_names()
+    
     def has_column(table: str, column: str) -> bool:
+        if not has_table(table):
+            return False
         return column in {col["name"] for col in inspector.get_columns(table)}
 
     with db.engine.begin() as connection:
+        # Ensure User table exists
+        if not has_table("user"):
+            db.create_all()
+            # Re-inspect after creating tables
+            inspector = inspect(db.engine)
         if not has_column("culture", "ended_on"):
             connection.execute(text("ALTER TABLE culture ADD COLUMN ended_on DATE"))
         if not has_column("passage", "vessel_id"):
@@ -417,6 +494,15 @@ def ensure_columns() -> None:
             ),
             {"free": MYCO_STATUS_FREE, "tested": MYCO_STATUS_TESTED},
         )
+        if not has_column("culture", "user_id"):
+            connection.execute(text("ALTER TABLE culture ADD COLUMN user_id INTEGER"))
+            # Assign existing cultures to first user (if any exist)
+            first_user = connection.execute(text("SELECT id FROM user LIMIT 1")).fetchone()
+            if first_user:
+                connection.execute(
+                    text("UPDATE culture SET user_id = :user_id WHERE user_id IS NULL"),
+                    {"user_id": first_user[0]}
+                )
         connection.execute(
             text(
                 "UPDATE culture SET last_handled_on = start_date "
@@ -610,6 +696,20 @@ def save_label_library(labels: list[str]) -> None:
     Setting.set_value(LABEL_LIBRARY_SETTING, json.dumps(labels))
 
 
+def get_user_cultures_query():
+    """Get a query for cultures belonging to the current user."""
+    return Culture.query.filter(Culture.user_id == current_user.id)
+
+
+def get_user_culture_or_404(culture_id: int):
+    """Get a culture by ID, ensuring it belongs to the current user."""
+    culture = get_user_cultures_query().filter(Culture.id == culture_id).first()
+    if culture is None:
+        from flask import abort
+        abort(404)
+    return culture
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     """Login route"""
@@ -644,7 +744,11 @@ def signup():
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
-        confirm_password = request.form.get("confirm_password", "")
+        confirm_password = (
+            request.form.get("password_confirm")
+            or request.form.get("confirm_password")
+            or ""
+        )
         
         if not email or not password:
             flash("Please provide both email and password.", "error")
@@ -725,12 +829,14 @@ def dashboard():
 @login_required
 def index():
     active_cultures = (
-        Culture.query.filter(Culture.ended_on.is_(None))
+        get_user_cultures_query()
+        .filter(Culture.ended_on.is_(None))
         .order_by(Culture.name.asc())
         .all()
     )
     ended_cultures = (
-        Culture.query.filter(Culture.ended_on.isnot(None))
+        get_user_cultures_query()
+        .filter(Culture.ended_on.isnot(None))
         .order_by(Culture.name.asc())
         .all()
     )
@@ -995,6 +1101,7 @@ def delete_label(label_index: int):
 
 
 @app.route("/culture", methods=["POST"])
+@login_required
 def create_culture():
     name = request.form.get("name", "").strip()
     if not name:
@@ -1046,6 +1153,7 @@ def create_culture():
     culture = Culture(
         name=name,
         cell_line=cell_line,
+        user_id=current_user.id,
         start_date=start_date,
         last_handled_on=start_date,
         notes=culture_notes,
@@ -1105,8 +1213,9 @@ def create_culture():
 
 
 @app.route("/culture/<int:culture_id>/clone", methods=["POST"])
+@login_required
 def clone_culture(culture_id: int):
-    culture = Culture.query.get_or_404(culture_id)
+    culture = get_user_culture_or_404(culture_id)
     latest = culture.latest_passage
 
     if latest is None:
@@ -1142,6 +1251,7 @@ def clone_culture(culture_id: int):
     new_culture = Culture(
         name=name,
         cell_line=culture.cell_line,
+        user_id=current_user.id,
         start_date=today_value,
         last_handled_on=today_value,
         notes=culture.notes,
@@ -1181,8 +1291,9 @@ def clone_culture(culture_id: int):
 
 
 @app.route("/culture/<int:culture_id>")
+@login_required
 def view_culture(culture_id: int):
-    culture = Culture.query.get_or_404(culture_id)
+    culture = get_user_culture_or_404(culture_id)
     vessels = Vessel.query.order_by(Vessel.area_cm2.asc()).all()
     last_passage = culture.latest_passage
     default_cell_concentration = (
@@ -1253,8 +1364,9 @@ def view_culture(culture_id: int):
 
 
 @app.route("/culture/<int:culture_id>/add_passage", methods=["POST"])
+@login_required
 def add_passage(culture_id: int):
-    culture = Culture.query.get_or_404(culture_id)
+    culture = get_user_culture_or_404(culture_id)
 
     if culture.ended_on is not None:
         flash(
@@ -1383,8 +1495,9 @@ def add_passage(culture_id: int):
 
 
 @app.route("/culture/<int:culture_id>/measurement", methods=["POST"])
+@login_required
 def record_measurement(culture_id: int):
-    culture = Culture.query.get_or_404(culture_id)
+    culture = get_user_culture_or_404(culture_id)
 
     if request.form.get("clear"):
         culture.measured_cell_concentration = None
@@ -1463,8 +1576,9 @@ def record_measurement(culture_id: int):
 
 
 @app.route("/culture/<int:culture_id>/confluence", methods=["POST"])
+@login_required
 def record_confluence(culture_id: int):
-    culture = Culture.query.get_or_404(culture_id)
+    culture = get_user_culture_or_404(culture_id)
     latest_passage = culture.latest_passage
 
     if request.form.get("clear"):
@@ -1556,6 +1670,7 @@ def doubling_times():
 
 
 @app.route("/api/calc-seeding", methods=["POST"])
+@login_required
 def calculate_seeding():
     payload = request.get_json(force=True)
 
@@ -1704,7 +1819,7 @@ def calculate_seeding():
         except (TypeError, ValueError):
             culture_lookup_id = None
         if culture_lookup_id:
-            culture = Culture.query.get(culture_lookup_id)
+            culture = get_user_cultures_query().filter(Culture.id == culture_lookup_id).first()
             if culture:
                 cell_line = culture.cell_line
 
@@ -1763,6 +1878,7 @@ def calculate_seeding():
 
 
 @app.route("/api/bulk-harvest", methods=["POST"])
+@login_required
 def record_bulk_harvest():
     payload = request.get_json(silent=True) or {}
     entries = payload.get("entries")
@@ -1779,7 +1895,7 @@ def record_bulk_harvest():
             db.session.rollback()
             return jsonify({"error": "Invalid culture identifier supplied."}), 400
 
-        culture = Culture.query.get(culture_id)
+        culture = get_user_cultures_query().filter(Culture.id == culture_id).first()
         if culture is None:
             db.session.rollback()
             return jsonify({"error": f"Culture {culture_id} could not be found."}), 404
@@ -1919,6 +2035,7 @@ def record_bulk_harvest():
 
 
 @app.route("/api/bulk-passages", methods=["POST"])
+@login_required
 def create_bulk_passages():
     payload = request.get_json(silent=True) or {}
     entries = payload.get("entries")
@@ -1936,7 +2053,7 @@ def create_bulk_passages():
             db.session.rollback()
             return jsonify({"error": "Invalid culture identifier supplied."}), 400
 
-        culture = Culture.query.get(culture_id_int)
+        culture = get_user_cultures_query().filter(Culture.id == culture_id_int).first()
         if culture is None:
             db.session.rollback()
             return jsonify({"error": f"Culture {culture_id_int} could not be found."}), 404
@@ -2125,12 +2242,13 @@ def create_bulk_passages():
 
 
 @app.route("/export/cultures.csv")
+@login_required
 def export_cultures():
     status = (request.args.get("status") or "active").strip().lower()
     if status not in {"active", "ended", "both", "all"}:
         return jsonify({"error": "Invalid export status."}), 400
 
-    query = Culture.query
+    query = get_user_cultures_query()
     if status == "active":
         query = query.filter(Culture.ended_on.is_(None))
     elif status == "ended":
@@ -2227,14 +2345,170 @@ def export_cultures():
     )
 
 
+@app.route("/import/database", methods=["POST"])
+@login_required
+def import_database():
+    """Replace the current SQLite database with an uploaded backup."""
+    if db.engine.url.drivername != "sqlite":
+        flash("Database import is only supported for SQLite deployments.", "error")
+        return redirect(url_for("index"))
+
+    uploaded_file = request.files.get("database_file")
+    if uploaded_file is None or uploaded_file.filename == "":
+        flash("Choose a SQLite database file to import.", "error")
+        return redirect(url_for("index"))
+
+    filename = secure_filename(uploaded_file.filename)
+    extension = Path(filename).suffix.lower()
+    if extension not in {".db", ".sqlite"}:
+        flash("Upload a SQLite database file ending in .db or .sqlite.", "error")
+        return redirect(url_for("index"))
+
+    database_path_str = db.engine.url.database
+    if not database_path_str:
+        flash("Unable to determine the database path for import.", "error")
+        return redirect(url_for("index"))
+
+    candidate_paths: list[Path] = []
+    database_path = Path(database_path_str)
+    if database_path.is_absolute():
+        candidate_paths.append(database_path)
+    else:
+        candidate_paths.extend(
+            [
+                Path(app.instance_path) / database_path.name,
+                Path(app.root_path) / database_path,
+                Path.cwd() / database_path,
+            ]
+        )
+
+    target_path: Path | None = None
+    for candidate in candidate_paths:
+        if candidate.exists():
+            target_path = candidate
+            break
+    if target_path is None:
+        target_path = candidate_paths[0]
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = target_path.with_suffix(target_path.suffix + ".importing")
+    backup_path = target_path.with_suffix(target_path.suffix + ".backup")
+
+    # Save current user info before replacing database
+    current_user_id = current_user.id
+    current_user_email = current_user.email
+    current_user_password_hash = current_user.password_hash
+    current_user_created_at = current_user.created_at
+    
+    try:
+        uploaded_file.save(temp_path)
+        db.session.remove()
+        db.engine.dispose()
+        if target_path.exists():
+            shutil.copy2(target_path, backup_path)
+        shutil.move(temp_path, target_path)
+        
+        # Reconnect to the new database
+        db.engine.dispose()
+        db.create_all()
+        
+        # Ensure all tables exist, especially user table
+        inspector = inspect(db.engine)
+        existing_tables = inspector.get_table_names()
+        
+        if "user" not in existing_tables:
+            # Create user table if it doesn't exist
+            with db.engine.begin() as connection:
+                connection.execute(text("""
+                    CREATE TABLE IF NOT EXISTS user (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        email VARCHAR(120) NOT NULL UNIQUE,
+                        password_hash VARCHAR(255) NOT NULL,
+                        created_at DATETIME NOT NULL
+                    )
+                """))
+            # Refresh inspector
+            inspector = inspect(db.engine)
+            existing_tables = inspector.get_table_names()
+        
+        # Ensure user_id column exists in culture table
+        ensure_columns()
+        
+        # Refresh inspector after ensure_columns
+        inspector = inspect(db.engine)
+        
+        # Restore current user account
+        with db.engine.begin() as connection:
+            # Check if user already exists
+            user_exists = connection.execute(
+                text("SELECT id FROM user WHERE email = :email"),
+                {"email": current_user_email}
+            ).fetchone()
+            
+            if not user_exists:
+                # Insert current user
+                connection.execute(
+                    text("""
+                        INSERT INTO user (id, email, password_hash, created_at)
+                        VALUES (:id, :email, :password_hash, :created_at)
+                    """),
+                    {
+                        "id": current_user_id,
+                        "email": current_user_email,
+                        "password_hash": current_user_password_hash,
+                        "created_at": current_user_created_at
+                    }
+                )
+            
+            # Reassign all cultures to current user
+            if "culture" in existing_tables:
+                # Check if user_id column exists
+                culture_columns = [col["name"] for col in inspector.get_columns("culture")]
+                if "user_id" in culture_columns:
+                    connection.execute(
+                        text("UPDATE culture SET user_id = :user_id WHERE user_id IS NULL OR user_id != :user_id"),
+                        {"user_id": current_user_id}
+                    )
+                else:
+                    # Add user_id column if missing
+                    connection.execute(text("ALTER TABLE culture ADD COLUMN user_id INTEGER"))
+                    connection.execute(
+                        text("UPDATE culture SET user_id = :user_id"),
+                        {"user_id": current_user_id}
+                    )
+        
+        # Re-initialize database connection
+        db.engine.dispose()
+        
+    except Exception as exc:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+        if backup_path.exists():
+            try:
+                shutil.move(backup_path, target_path)
+            except Exception:
+                pass
+        flash(f"Database import failed: {exc}", "error")
+        import traceback
+        traceback.print_exc()
+        return redirect(url_for("index"))
+    else:
+        if backup_path.exists():
+            backup_path.unlink(missing_ok=True)
+        flash("Database imported successfully. All cultures have been assigned to your account.", "success")
+        return redirect(url_for("index"))
+
+
 @app.route("/export/active-cultures.csv")
+@login_required
 def export_active_cultures_legacy():
     return export_cultures()
 
 
 @app.route("/culture/<int:culture_id>/end", methods=["POST"])
+@login_required
 def end_culture(culture_id: int):
-    culture = Culture.query.get_or_404(culture_id)
+    culture = get_user_culture_or_404(culture_id)
     if culture.ended_on is not None:
         flash("Culture is already marked as ended.", "info")
         return redirect(url_for("view_culture", culture_id=culture.id))
@@ -2250,8 +2524,9 @@ def end_culture(culture_id: int):
 
 
 @app.route("/culture/<int:culture_id>/reactivate", methods=["POST"])
+@login_required
 def reactivate_culture(culture_id: int):
-    culture = Culture.query.get_or_404(culture_id)
+    culture = get_user_culture_or_404(culture_id)
     if culture.ended_on is None:
         flash("Culture is already active.", "info")
         return redirect(url_for("view_culture", culture_id=culture.id))
@@ -2265,8 +2540,9 @@ def reactivate_culture(culture_id: int):
 
 
 @app.route("/culture/<int:culture_id>/refresh_media", methods=["POST"])
+@login_required
 def refresh_media(culture_id: int):
-    culture = Culture.query.get_or_404(culture_id)
+    culture = get_user_culture_or_404(culture_id)
     if not culture.is_active:
         flash("Reactivate the culture before recording a media refresh.", "error")
         return redirect(url_for("view_culture", culture_id=culture.id))
@@ -2295,8 +2571,9 @@ def refresh_media(culture_id: int):
 
 
 @app.route("/culture/<int:culture_id>/myco", methods=["POST"])
+@login_required
 def update_myco_status(culture_id: int):
-    culture = Culture.query.get_or_404(culture_id)
+    culture = get_user_culture_or_404(culture_id)
     status = request.form.get("myco_status") or ""
     valid_statuses = {choice[0] for choice in MYCO_STATUS_CHOICES}
 
@@ -2327,8 +2604,9 @@ def update_myco_status(culture_id: int):
 
 
 @app.route("/culture/<int:culture_id>/delete", methods=["POST"])
+@login_required
 def delete_culture(culture_id: int):
-    culture = Culture.query.get_or_404(culture_id)
+    culture = get_user_culture_or_404(culture_id)
 
     if culture.ended_on is None:
         flash("End the culture before deleting it permanently.", "error")
@@ -2343,9 +2621,10 @@ def delete_culture(culture_id: int):
 
 
 @app.route("/passage/<int:passage_id>/edit", methods=["GET", "POST"])
+@login_required
 def edit_passage(passage_id: int):
     passage = Passage.query.get_or_404(passage_id)
-    culture = passage.culture
+    culture = get_user_culture_or_404(passage.culture_id)
     if request.method == "POST":
         passage.date = parse_date(request.form.get("date"))
         passage.media = request.form.get("media")
@@ -2425,9 +2704,10 @@ def edit_passage(passage_id: int):
 
 
 @app.route("/passage/<int:passage_id>/delete", methods=["POST"])
+@login_required
 def delete_passage(passage_id: int):
     passage = Passage.query.get_or_404(passage_id)
-    culture = passage.culture
+    culture = get_user_culture_or_404(passage.culture_id)
     db.session.delete(passage)
     db.session.commit()
     flash(
@@ -2443,7 +2723,14 @@ def inject_helpers():
 
 
 with app.app_context():
-    setup_database()
+    try:
+        print("Setting up database...")
+        setup_database()
+        print("Database setup complete.")
+    except Exception as e:
+        print(f"Failed to setup database: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
