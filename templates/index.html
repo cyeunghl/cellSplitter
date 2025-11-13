@@ -65,7 +65,40 @@
         <button class="button secondary" type="button" onclick="document.getElementById('import-form').classList.toggle('hidden')">Import Database</button>
       </div>
     </div>
-    <form id="import-form" class="import-form hidden" method="post" action="{{ url_for('import_database') }}" enctype="multipart/form-data">
+    <form
+      id="import-form"
+      class="import-form hidden"
+      method="post"
+      action="{{ url_for('import_database') }}"
+      enctype="multipart/form-data"
+    >
+      <article class="card" style="max-width: 420px; margin-bottom: 1.5rem;">
+        <header class="card-header">
+          <h3>Import database</h3>
+          <p>Upload a SQLite backup (.db or .sqlite). Your current data will be replaced.</p>
+        </header>
+        <div class="card-body form">
+          <label>
+            <span>Database file</span>
+            <input type="file" name="database_file" accept=".db,.sqlite" required />
+          </label>
+          <p class="form-hint">
+            We create a backup of the current database before importing the new file.
+          </p>
+          <div class="form-actions">
+            <button class="button secondary" type="submit">Import</button>
+            <button
+              class="button ghost"
+              type="button"
+              onclick="document.getElementById('import-form').classList.add('hidden')"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </article>
+    </form>
+
     {% if active_cultures %}
       <div class="table-wrapper">
         <table class="table cultures-table">
