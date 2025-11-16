@@ -68,6 +68,61 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 
    The app stores data in a local SQLite database (`cellsplitter.db`).
 
+## Multi-user journal + API blueprint
+
+The repository now includes a production-minded Flask blueprint under
+`journal_app/` that upgrades the single-user journal to a multi-user API with
+per-user isolation, secure password hashing, email/password-reset flows, and
+RESTful CRUD endpoints.
+
+### Highlights
+
+- **User management** – `journal_app/models.py` defines `User` and
+  `JournalEntry` models (SQLAlchemy) with password + security-answer hashing,
+  reset-token helpers, and a one-to-many relationship.
+- **Session handling** – `journal_app/security.py` provides a lightweight
+  session-based auth layer that mirrors Flask-Login's API so you can swap in the
+  official extension simply by installing `Flask-Login` and updating imports if
+  desired. Routes in `journal_app/auth.py` expose sign-up, login, logout, and
+  rate-limit aware flows.
+- **Password reset** – Email-based token resets use `itsdangerous` plus a
+  pluggable mail backend (`Flask-Mail` or the included shim). Optional security
+  question fallback endpoints are provided.
+- **Journal isolation** – `journal_app/journals.py` exposes CRUD endpoints that
+  always scope queries to the authenticated user via the `@owner_required`
+  decorator.
+- **CSRF & rate limiting guidance** – `journal_app/extensions.py` wires up
+  `CSRFProtect` (or a shim) and documents where to drop in `Flask-Limiter` or
+  Redis-backed counters for brute-force mitigation.
+- **Migrations** – Run `flask --app journal_app:create_app db upgrade` after
+  installing `Flask-Migrate`, or use the included `create-db` CLI helper for
+  quick SQLite tests.
+- **Email delivery** – Configure SMTP/Mailtrap credentials through environment
+  variables in `journal_app/config.py`. The included mail shim allows tests to
+  run without outbound SMTP; production deployments should install
+  `Flask-Mail`.
+
+### Running the API locally
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt  # installs Flask-Mail, Flask-WTF, Flask-Migrate
+flask --app journal_app:create_app run
+```
+
+### Testing
+
+Pytest coverage for the auth + journal flows lives in `tests/test_journal_app.py`.
+Run the suite with an in-memory SQLite database via:
+
+```bash
+pytest -q
+```
+
+The tests monkeypatch SMTP delivery, assert rate-limit counter increments, and
+confirm token expiration + security-question fallback behavior.
+
 3. **Open the interface** at <http://127.0.0.1:5000> to create cultures, log passages, and
    plan seeding densities.
 
