@@ -9,63 +9,96 @@
         <h1>Cultures</h1>
         <p>Track active cultures.</p>
       </div>
-      {% if active_cultures or ended_cultures %}
-        <div class="header-actions">
-          <form
-            class="inline-form threshold-form"
-            method="post"
-            action="{{ url_for('update_stale_cutoff') }}"
+      <div class="header-actions">
+        <form
+          class="inline-form threshold-form"
+          method="post"
+          action="{{ url_for('update_stale_cutoff') }}"
+        >
+          <input
+            type="number"
+            name="stale_cutoff_days"
+            value="{{ stale_cutoff_days }}"
+            min="0"
+            step="1"
+            aria-label="Days before stale reminder"
+            class="input-small"
+          />
+          <button class="button secondary" type="submit">Set stale days</button>
+        </form>
+        <form
+          class="inline-form threshold-form"
+          method="post"
+          action="{{ url_for('update_passage_threshold') }}"
+        >
+          <input
+            type="number"
+            name="passage_warning_threshold"
+            value="{{ passage_warning_threshold }}"
+            min="1"
+            step="1"
+            aria-label="Passage reminder threshold"
+            class="input-small"
+          />
+          <button
+            type="button"
+            class="button ghost info-button"
+            data-passage-info
+            aria-label="Learn about passage reminders"
           >
-            <input
-              type="number"
-              name="stale_cutoff_days"
-              value="{{ stale_cutoff_days }}"
-              min="0"
-              step="1"
-              aria-label="Days before stale reminder"
-              class="input-small"
-            />
-            <button class="button secondary" type="submit">Set stale days</button>
-          </form>
-          <form
-            class="inline-form threshold-form"
-            method="post"
-            action="{{ url_for('update_passage_threshold') }}"
+            ?
+          </button>
+          <button class="button secondary" type="submit">Set reminder</button>
+        </form>
+        <form class="inline-form" method="get" action="{{ url_for('export_cultures') }}">
+          <select
+            id="export-status"
+            name="status"
+            aria-label="Select which cultures to include in the export"
           >
-            <input
-              type="number"
-              name="passage_warning_threshold"
-              value="{{ passage_warning_threshold }}"
-              min="1"
-              step="1"
-              aria-label="Passage reminder threshold"
-              class="input-small"
-            />
-            <button
-              type="button"
-              class="button ghost info-button"
-              data-passage-info
-              aria-label="Learn about passage reminders"
-            >
-              ?
-            </button>
-            <button class="button secondary" type="submit">Set reminder</button>
-          </form>
-          <form class="inline-form" method="get" action="{{ url_for('export_cultures') }}">
-            <select
-              id="export-status"
-              name="status"
-              aria-label="Select which cultures to include in the export"
-            >
-              <option value="active">Active cultures</option>
-              <option value="ended">Ended cultures</option>
-              <option value="both">Active + ended</option>
-            </select>
-            <button class="button secondary" type="submit">Export CSV</button>
-          </form>
-        </div>
-      {% endif %}
+            <option value="active">Active cultures</option>
+            <option value="ended">Ended cultures</option>
+            <option value="both">Active + ended</option>
+          </select>
+          <button class="button secondary" type="submit">Export CSV</button>
+        </form>
+        <button class="button secondary" type="button" onclick="document.getElementById('import-form').classList.toggle('hidden')">Import Database</button>
+      </div>
     </div>
+    <form
+      id="import-form"
+      class="import-form hidden"
+      method="post"
+      action="{{ url_for('import_database') }}"
+      enctype="multipart/form-data"
+    >
+      <article class="card" style="max-width: 420px; margin-bottom: 1.5rem;">
+        <header class="card-header">
+          <h3>Import database</h3>
+          <p>Upload a SQLite backup (.db or .sqlite). Your current data will be replaced.</p>
+        </header>
+        <div class="card-body form">
+          <label>
+            <span>Database file</span>
+            <input type="file" name="database_file" accept=".db,.sqlite" required />
+          </label>
+          <p class="form-hint">
+            We create a backup of the current database before importing the new file.
+          </p>
+          <div class="form-actions">
+            <button class="button secondary" type="submit">Import</button>
+            <button
+              class="button ghost"
+              type="button"
+              onclick="document.getElementById('import-form').classList.add('hidden')"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </article>
+    </form>
+
     {% if active_cultures %}
       <div class="table-wrapper">
         <table class="table cultures-table">
@@ -474,7 +507,12 @@
       <h2>Start a new culture</h2>
       <p>Create a culture and log its initial passage (defaults to P1).</p>
     </div>
-    <form class="form" method="post" action="{{ url_for('create_culture') }}">
+    <form
+      class="form"
+      method="post"
+      action="{{ url_for('create_culture') }}"
+      data-create-culture-form
+    >
       <div class="field-grid">
         <label>
           <span>Culture name</span>
@@ -501,6 +539,37 @@
       <fieldset class="fieldset">
         <legend>Initial passage</legend>
         <div class="field-grid">
+          <label class="wide">
+            <span>Copy initial details (optional)</span>
+            <select
+              name="initial_template"
+              data-prefill-select
+              {% if not culture_prefill_groups %}disabled{% endif %}
+            >
+              <option value="">
+                {% if culture_prefill_groups %}
+                  Select a culture…
+                {% else %}
+                  No saved cultures available
+                {% endif %}
+              </option>
+              {% for group in culture_prefill_groups %}
+                <optgroup label="{{ group.label }}">
+                  {% for entry in group.entries %}
+                    <option value="{{ entry.id }}">
+                      {{ entry.name }}
+                      {% if entry.cell_line %}
+                        · {{ entry.cell_line }}
+                      {% endif %}
+                      {% if entry.latest_passage_number %}
+                        · P{{ entry.latest_passage_number }}
+                      {% endif %}
+                    </option>
+                  {% endfor %}
+                </optgroup>
+              {% endfor %}
+            </select>
+          </label>
           <label>
             <span>Passage number</span>
             <input
@@ -516,12 +585,33 @@
             <input type="text" name="initial_media" placeholder="e.g. DMEM + 10% FBS" />
           </label>
           <label>
+            <span>Vessel (optional)</span>
+            <select name="initial_vessel_id">
+              <option value="">Select a vessel…</option>
+              {% for vessel in vessels %}
+                <option value="{{ vessel.id }}">
+                  {{ vessel.name }} ({{ '%g' % vessel.area_cm2 }} cm²)
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
             <span>Cell concentration (cells/mL)</span>
             <input type="text" name="initial_cell_concentration" placeholder="e.g. 1.5e6" />
           </label>
           <label>
             <span>Seeded cells (total)</span>
             <input type="text" name="initial_seeded_cells" placeholder="e.g. 2e6" />
+          </label>
+          <label>
+            <span>Viability (%)</span>
+            <input
+              type="number"
+              name="initial_viability_percent"
+              min="0"
+              max="100"
+              step="1"
+            />
           </label>
           <label>
             <span>Doubling time (hours)</span>
@@ -668,6 +758,9 @@
 
 {% block scripts %}
   {{ super() }}
+  <script type="application/json" id="create-culture-prefill-data">
+    {{ culture_prefill_json | safe }}
+  </script>
   {% if active_cultures %}
     <script type="application/json" id="bulk-culture-data">
       {{ bulk_cultures_json | safe }}
