@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  cellsplitter:
+    build: .
+    container_name: cellsplitter-app
+    ports:
+      - "5002:5002"
+    volumes:
+      # Mount database directory as volume for persistence
+      - ./instance:/app/instance
+      # Optional: mount data directory if you need to update JSON files
+      - ./data:/app/data
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=production
+      - PORT=5002
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

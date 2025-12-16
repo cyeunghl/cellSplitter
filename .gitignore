@@ -4,3 +4,9 @@ instance/
 *.db
 .env
 .vscode/
+.vercel
+migrate_to_multiuser.py
+VERCEL_DEPLOYMENT.md
+IMPLEMENTATION_GUIDE.md
+BLUEPRINT.md
+README_BMAD.md

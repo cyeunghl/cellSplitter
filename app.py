@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import math
+import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -24,7 +25,7 @@ from sqlalchemy import inspect, text
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///cellsplitter.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SECRET_KEY"] = "cellsplitter-secret-key"
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-key-CHANGE-IN-PRODUCTION")
 
 db = SQLAlchemy(app)
 
@@ -2193,4 +2194,6 @@ with app.app_context():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", debug=True)
+    import os
+    port = int(os.environ.get("PORT", 5002))
+    app.run(host="0.0.0.0", port=port, debug=True)
