@@ -42,7 +42,27 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
    pip install -r requirements.txt
    ```
 
-2. **Run the development server**
+2. **Configure environment variables** (optional for development, **required for production**)
+
+   Copy `.env.example` to `.env` and set your configuration:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   **Important:** Generate a secure `SECRET_KEY` for production deployments:
+
+   ```bash
+   python -c "import secrets; print(secrets.token_hex(32))"
+   ```
+
+   Add the generated key to your `.env` file:
+
+   ```
+   SECRET_KEY=your-generated-secure-key-here
+   ```
+
+3. **Run the development server**
 
    ```bash
    flask --app app run --debug
@@ -50,7 +70,7 @@ seed toward a desired confluency using built-in doubling times and vessel capaci
 
    The app stores data in a local SQLite database (`cellsplitter.db`).
 
-3. **Open the interface** at <http://127.0.0.1:5000> to create cultures, log passages, and
+4. **Open the interface** at <http://127.0.0.1:5000> to create cultures, log passages, and
    plan seeding densities.
 
 ## Usage notes

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Vercel
+.vercel/
+
+# Testing
+.pytest_cache/
+*.coverage
+htmlcov/
+
+# Database (exclude from image, will be mounted as volume)
+*.db
+instance/
+
+# Documentation
+README.md
+LICENSE
+
+# Tests
+tests/
+
+# Other
+.DS_Store
+*.log
